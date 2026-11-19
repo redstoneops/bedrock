@@ -37,7 +37,7 @@ export interface LedgerEntryBase {
 	/** Free-form tags used by retrieval and prompt assembly. */
 	tags?: string[];
 	/** Entry id of the evidence that backs this claim, if any. */
-	evidence?: Id<"evidence">;
+	evidence?: Id<"entry">;
 }
 
 /** Something believed true about the world. `confidence` is explicit so the harness can challenge it. */
@@ -46,7 +46,7 @@ export interface Fact extends LedgerEntryBase {
 	statement: string;
 	confidence: "certain" | "likely" | "speculative";
 	/** Raw evidence entries recorded inline; protocol keeps them attached by id. */
-	sources?: Id<"evidence">[];
+	sources?: Id<"entry">[];
 }
 
 export type HypothesisStatus = "open" | "confirmed" | "refuted";
@@ -142,7 +142,7 @@ export interface LedgerQuery {
 	text?: string;
 	tags?: string[];
 	/** Only entries whose evidence is one of these ids. */
-	evidence?: Id<"evidence">[];
+	evidence?: Id<"entry">[];
 	since?: Timestamp;
 	limit?: number;
 	order?: "asc" | "desc";

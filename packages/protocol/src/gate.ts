@@ -28,7 +28,7 @@ export interface CommandCheck {
 	/** Visible checks run by workers and the verifier; holdout checks run only by the verifier. */
 	visibility: "visible" | "holdout";
 	/** Set by the compiler when it proved the check fails on the pre-fix tree. */
-	baseline?: { failsWithoutFix: boolean; evidenceId?: Id<"evidence">; justification?: string };
+	baseline?: { failsWithoutFix: boolean; evidenceId?: Id<"entry">; justification?: string };
 }
 
 /** Things that must stay true even when every check passes. */

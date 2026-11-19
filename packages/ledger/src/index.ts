@@ -1,2 +1,3 @@
-// @bedrock/ledger: Typed, queryable evidence ledger (facts, hypotheses, decisions, evidence) on SQLite.
-export const PACKAGE_NAME = "@bedrock/ledger";
+// @bedrock/ledger: Chest state records and the SQLite ledger.
+
+export * from "./ledger.ts";

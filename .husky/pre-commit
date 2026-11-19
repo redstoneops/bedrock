@@ -1,1 +1,4 @@
-npm run check && npm test
+# Fast gate on every commit: formatting, lint and typecheck.
+# The test suite runs before committing in practice and in CI; git's index lock
+# makes a full suite inside this hook fragile when tests create temp git repos.
+npm run check

@@ -73,10 +73,15 @@ describe("Ai", () => {
 		await expect(ai.call("worker", "hi")).rejects.toThrow(/all models for role "worker" failed: b/);
 	});
 
-	it("refuses unknown models with an actionable message", () => {
+	it("degrades a stale configured model to something in the catalog", () => {
 		const { ai } = testAi();
 		ai.config.roles.roles.scout = { model: "nobody/missing" };
-		expect(() => ai.resolve("scout")).toThrow(/not in the catalog/);
+		expect(ai.resolve("scout").model.provider).toBe("faux");
+	});
+
+	it("refuses to guess when the catalog is empty", () => {
+		const ai = new Ai({ config: defaultConfig(), models: createModels() });
+		expect(() => ai.resolve("worker")).toThrow(/no models are configured/);
 	});
 
 	it("drops same-family fallbacks when the role requires a different family", () => {

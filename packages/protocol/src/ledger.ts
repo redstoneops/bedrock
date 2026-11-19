@@ -117,6 +117,8 @@ export interface Candidate extends LedgerEntryBase {
 	workerId: Id<"worker">;
 	branch: string;
 	commit: string;
+	/** Tree hash the candidate was verified at. */
+	treeHash?: string;
 	diffStat: { files: number; additions: number; deletions: number };
 	score?: number;
 	selected?: boolean;

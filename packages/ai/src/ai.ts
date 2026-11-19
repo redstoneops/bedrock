@@ -92,39 +92,65 @@ export class Ai {
 		this.#overrides.set(role, model);
 	}
 
-	/** The model a role resolves to right now. */
+	/**
+	 * The model a role resolves to right now. Resolution degrades instead of
+	 * failing: an unconfigured catalog (or a stale model id in config) falls back
+	 * to the default role's model and then to any available model, because a
+	 * harness that cannot run is worse than one running on a fallback. A truly
+	 * empty catalog is a configuration error and throws.
+	 */
 	resolve(role: Role): ResolvedModel {
 		const roles = this.config.roles as RolesConfig;
 		const roleConfig = roles.roles[role] ?? {};
-		const ref = this.#overrides.get(role) ?? roleConfig.model ?? roles.default;
-		const { provider, id } = parseModelRef(ref);
-		const model = this.models.getModel(provider, id);
-		if (!model) {
-			throw new Error(
-				`model "${ref}" for role "${role}" is not in the catalog; check your config or run \`bedrock models\``,
-			);
-		}
-		let fallbacks = [...(roleConfig.fallback ?? [])].filter((ref) => {
-			// A fallback that is not in the catalog (unconfigured provider) is dead weight.
-			try {
-				const parsed = parseModelRef(ref);
-				return this.models.getModel(parsed.provider, parsed.id) !== undefined;
-			} catch {
-				return false;
+		const configured = this.#overrides.get(role) ?? roleConfig.model ?? roles.default;
+		const fallbacks = [...(roleConfig.fallback ?? [])].filter((ref) => this.#lookup(ref) !== undefined);
+		const candidates = [configured, roles.default, ...fallbacks];
+		const distinct = candidates.filter((ref, index) => candidates.indexOf(ref) === index);
+
+		let chosen = this.#lookup(configured) ? configured : undefined;
+		if (!chosen) {
+			for (const reference of distinct) {
+				if (this.#lookup(reference)) {
+					chosen = reference;
+					break;
+				}
 			}
-		});
-		if (roleConfig.requireDifferentFamily) {
-			const family = provider;
-			fallbacks = fallbacks.filter((ref) => parseModelRef(ref).provider !== family);
 		}
-		return { role, model: model as Model<string>, effort: roleConfig.effort ?? "off", fallbacks };
+		if (!chosen) {
+			const available = this.models.getModels();
+			if (available.length === 0) {
+				throw new Error(
+					`no models are configured for role "${role}"; set roles.default in config or check provider credentials`,
+				);
+			}
+			const first = available[0];
+			chosen = `${first.provider}/${first.id}`;
+		}
+
+		const model = this.#lookup(chosen);
+		if (!model) throw new Error(`model "${chosen}" is not in the catalog`);
+		let effectiveFallbacks = fallbacks;
+		if (roleConfig.requireDifferentFamily) {
+			const family = parseModelRef(chosen).provider;
+			effectiveFallbacks = effectiveFallbacks.filter((ref) => parseModelRef(ref).provider !== family);
+		}
+		return { role, model, effort: roleConfig.effort ?? "off", fallbacks: effectiveFallbacks };
+	}
+
+	#lookup(ref: ModelRef): Model<string> | undefined {
+		try {
+			const { provider, id } = parseModelRef(ref);
+			return this.models.getModel(provider, id) as Model<string> | undefined;
+		} catch {
+			return undefined;
+		}
 	}
 
 	/**
 	 * Runs one prompt for a role and returns the answer plus its cost. On a
 	 * provider error or refusal the next model in the fallback chain is tried;
-	 * when the chain is exhausted the error message is returned as text so the
-	 * caller decides what to do (the harness never throws on provider errors).
+	 * when the chain is exhausted the error message is thrown so the caller can
+	 * decide (the harness treats a failed role call as a failed step, not a crash).
 	 */
 	async call(
 		role: Role,
@@ -132,19 +158,15 @@ export class Ai {
 		options: { system?: string; maxTokens?: number; temperature?: number } = {},
 	): Promise<AiResult> {
 		const resolved = this.resolve(role);
-		const chain: ModelRef[] = [
-			this.#overrides.get(role) ?? this.config.roles.roles[role]?.model ?? this.config.roles.default,
-			...resolved.fallbacks,
+		const chain = [
+			resolved.model,
+			...resolved.fallbacks
+				.map((ref) => this.#lookup(ref))
+				.filter((model): model is Model<string> => model !== undefined),
 		];
 		let lastError = "";
 		for (let index = 0; index < chain.length; index++) {
-			const ref = chain[index];
-			const { provider, id } = parseModelRef(ref);
-			const model = this.models.getModel(provider, id) as Model<string> | undefined;
-			if (!model) {
-				lastError = `model "${ref}" is not in the catalog`;
-				continue;
-			}
+			const model = chain[index];
 			const context: Context = { messages: [{ role: "user", content: prompt, timestamp: Date.now() }] };
 			const streamOptions: SimpleStreamOptions = {
 				maxTokens: options.maxTokens,
@@ -153,20 +175,21 @@ export class Ai {
 			};
 			const message = await this.models.completeSimple(model, context, streamOptions);
 			this.cost.add(role, message.usage);
-			const text = message.content
+			const textPart = message.content
 				.filter(
 					(part): part is Extract<AssistantMessage["content"][number], { type: "text" }> => part.type === "text",
 				)
 				.map((part) => part.text)
 				.join("");
 			if (message.stopReason === "error" || message.stopReason === "aborted") {
-				lastError = message.errorMessage ?? `model "${ref}" stopped with ${message.stopReason}`;
+				lastError =
+					message.errorMessage ?? `model "${model.provider}/${model.id}" stopped with ${message.stopReason}`;
 				continue;
 			}
 			return {
 				message,
-				text,
-				model: ref,
+				text: textPart,
+				model: `${model.provider}/${model.id}`,
 				costUsd: message.usage.cost.total,
 				tokens: message.usage.totalTokens,
 				usedFallback: index > 0,

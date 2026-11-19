@@ -9,9 +9,13 @@ import type { Role } from "./roles.ts";
 
 /** A candidate as selection and verification see it: the ledger record plus its gate result and diff. */
 export type CandidateView = Candidate & {
+	/** The gate result that produced this candidate. */
+	gate: GateResult;
 	/** Compact summary the judge sees: intent, diffstat, key hunks, remaining risks. */
 	summary: string;
 	diff?: string;
+	/** Rubric score from L3, 0..1. */
+	rubricScore?: number;
 };
 
 /** Produces a gate for a mission. The default implementation is the LLM gate compiler. */
@@ -23,17 +27,18 @@ export interface GateProvider {
 export interface Verifier {
 	readonly level: 0 | 1 | 2 | 3 | 4;
 	readonly name: string;
-	/** Skip this layer when its preconditions are not met (e.g. no candidate tree). */
-	applies(candidate: CandidateView): boolean;
-	verify(candidate: Candidate, gate: Gate): Promise<GateResult>;
+	/** Skip this layer when its preconditions are not met (e.g. no candidate tree or no rubric). */
+	applies(candidate: CandidateView, gate: Gate): boolean;
+	verify(candidate: CandidateView, gate: Gate, context?: unknown): Promise<GateResult>;
 }
 
 /** Picks a winner among gate-passing candidates. */
 export interface SelectionStrategy {
+	/** Picks a winner; `winner` is undefined when no candidate is eligible. */
 	select(
 		candidates: CandidateView[],
 		gate: Gate,
-	): Promise<{ winner: CandidateView; rationale: string; ranking: Id<"worker">[] }>;
+	): Promise<{ winner?: CandidateView; rationale: string; ranking: Id<"worker">[] }>;
 }
 
 /**

@@ -120,7 +120,7 @@ export function defaultConfig(): BedrockConfig {
 		roles: {
 			default: "anthropic/claude-sonnet-5",
 			roles: {
-				scout: { model: "anthropic/claude-haiku-5", effort: "low" },
+				scout: { model: "anthropic/claude-haiku-4-5", effort: "low" },
 				strategist: { effort: "high" },
 				worker: { effort: "high" },
 				advisor: { effort: "medium" },
@@ -130,7 +130,7 @@ export function defaultConfig(): BedrockConfig {
 				reflector: { effort: "medium" },
 				curator: { effort: "low" },
 				commit: { effort: "low" },
-				smol: { model: "anthropic/claude-haiku-5", effort: "low" },
+				smol: { model: "anthropic/claude-haiku-4-5", effort: "low" },
 			},
 		},
 		loop: {

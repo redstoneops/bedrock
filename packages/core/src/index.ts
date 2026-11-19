@@ -1,2 +1,7 @@
-// @bedrock/core: Crafter: mission loop, Repeater budget controller, Piston workers, advisor.
-export const PACKAGE_NAME = "@bedrock/core";
+// @bedrock/core: Crafter, Repeater, Pistons and the scout.
+
+export * from "./budget-policy.ts";
+export * from "./mission.ts";
+export * from "./prompts.ts";
+export * from "./scout.ts";
+export * from "./worker.ts";

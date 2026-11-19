@@ -1,2 +1,4 @@
-// @bedrock/cli: The bedrock command-line interface (bedrock / br).
-export const PACKAGE_NAME = "@bedrock/cli";
+// @bedrock/cli: the bedrock command-line interface.
+
+export * from "./config.ts";
+export * from "./runtime.ts";

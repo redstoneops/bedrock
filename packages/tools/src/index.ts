@@ -3,6 +3,7 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { createBashTool } from "./bash.ts";
 import { createEditTool, createReadTool, createWriteTool } from "./files.ts";
+import { createFinishTool, createLedgerTool, type FinishReport, type LedgerSink } from "./ledger-tool.ts";
 import { createFindTool, createGrepTool, createListTool } from "./search.ts";
 import { createAskTool, createTodoTool } from "./todo.ts";
 import type { ToolContext } from "./types.ts";
@@ -41,7 +42,9 @@ export {
 	splitLines,
 	TAG_LENGTH,
 } from "./hashline.ts";
+export type { FinishReport, LedgerSink } from "./ledger-tool.ts";
+export { createFinishTool, createLedgerTool } from "./ledger-tool.ts";
 export { createFindTool, createGrepTool, createListTool, globMatch, walkFiles } from "./search.ts";
 export { createAskTool, createTodoTool } from "./todo.ts";
 export type { TodoItem, ToolContext } from "./types.ts";
-export { diffStat, failure, resolveInside, runSandboxed, text, unifiedDiff } from "./types.ts";
+export { diffStat, failure, resolveInside, runSandboxed, text, toDetails, unifiedDiff } from "./types.ts";

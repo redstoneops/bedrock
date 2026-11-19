@@ -1,0 +1,41 @@
+{
+	"name": "@bedrock/core",
+	"version": "0.1.0",
+	"description": "Crafter: mission loop, Repeater budget controller, Piston workers, advisor.",
+	"type": "module",
+	"license": "MIT",
+	"exports": {
+		".": {
+			"bedrock-source": "./src/index.ts",
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"test": "vitest run --root ../.. packages/core"
+	},
+	"dependencies": {
+		"@bedrock/protocol": "0.1.0",
+		"@bedrock/ai": "0.1.0",
+		"@bedrock/ledger": "0.1.0",
+		"@bedrock/context": "0.1.0",
+		"@bedrock/sandbox": "0.1.0",
+		"@bedrock/isolation": "0.1.0",
+		"@bedrock/tools": "0.1.0",
+		"@bedrock/gate": "0.1.0",
+		"@bedrock/verify": "0.1.0",
+		"@bedrock/kernel": "0.1.0",
+		"@bedrock/memory": "0.1.0",
+		"@earendil-works/pi-ai": "1.5.2",
+		"@earendil-works/pi-agent-core": "1.5.2"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	}
+}

@@ -1,0 +1,27 @@
+{
+	"name": "@bedrock/protocol",
+	"version": "0.1.0",
+	"description": "Shared domain types and event schema: missions, gates, evidence, verdicts, events.",
+	"type": "module",
+	"license": "MIT",
+	"exports": {
+		".": {
+			"bedrock-source": "./src/index.ts",
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"test": "vitest run --root ../.. packages/protocol"
+	},
+	"dependencies": {},
+	"engines": {
+		"node": ">=22.19.0"
+	}
+}

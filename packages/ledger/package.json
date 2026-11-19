@@ -1,0 +1,29 @@
+{
+	"name": "@bedrock/ledger",
+	"version": "0.1.0",
+	"description": "Typed, queryable evidence ledger (facts, hypotheses, decisions, evidence) on SQLite.",
+	"type": "module",
+	"license": "MIT",
+	"exports": {
+		".": {
+			"bedrock-source": "./src/index.ts",
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"test": "vitest run --root ../.. packages/ledger"
+	},
+	"dependencies": {
+		"@bedrock/protocol": "0.1.0"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	}
+}

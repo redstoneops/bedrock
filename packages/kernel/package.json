@@ -1,0 +1,29 @@
+{
+	"name": "@bedrock/kernel",
+	"version": "0.1.0",
+	"description": "Persistent Python kernel bridge: context as a variable, tool bindings, spawn().",
+	"type": "module",
+	"license": "MIT",
+	"exports": {
+		".": {
+			"bedrock-source": "./src/index.ts",
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"test": "vitest run --root ../.. packages/kernel"
+	},
+	"dependencies": {
+		"@bedrock/protocol": "0.1.0"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	}
+}

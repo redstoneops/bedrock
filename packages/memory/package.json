@@ -1,0 +1,31 @@
+{
+	"name": "@bedrock/memory",
+	"version": "0.1.0",
+	"description": "Chest and Bookshelf: task state files, ACE playbook, harness state and guarded refinement.",
+	"type": "module",
+	"license": "MIT",
+	"exports": {
+		".": {
+			"bedrock-source": "./src/index.ts",
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"test": "vitest run --root ../.. packages/memory"
+	},
+	"dependencies": {
+		"@bedrock/protocol": "0.1.0",
+		"@bedrock/ai": "0.1.0",
+		"@earendil-works/pi-ai": "1.5.2"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	}
+}

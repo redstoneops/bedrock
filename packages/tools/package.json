@@ -1,0 +1,35 @@
+{
+	"name": "@bedrock/tools",
+	"version": "0.1.0",
+	"description": "Agent tools: hashline edits, apply_patch, read, write, grep, find, bash, todo, ask.",
+	"type": "module",
+	"license": "MIT",
+	"exports": {
+		".": {
+			"bedrock-source": "./src/index.ts",
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"test": "vitest run --root ../.. packages/tools"
+	},
+	"dependencies": {
+		"@bedrock/protocol": "0.1.0",
+		"@bedrock/sandbox": "0.1.0",
+		"@bedrock/context": "0.1.0",
+		"@earendil-works/pi-ai": "1.5.2",
+		"@earendil-works/pi-agent-core": "1.5.2",
+		"@earendil-works/pi-schema": "1.5.2",
+		"diff": "8.0.4"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	}
+}

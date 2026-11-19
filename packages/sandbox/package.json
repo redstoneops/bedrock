@@ -1,0 +1,29 @@
+{
+	"name": "@bedrock/sandbox",
+	"version": "0.1.0",
+	"description": "Obsidian: permission policies, command safety, OS sandboxes, secret redaction, audit log.",
+	"type": "module",
+	"license": "MIT",
+	"exports": {
+		".": {
+			"bedrock-source": "./src/index.ts",
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"test": "vitest run --root ../.. packages/sandbox"
+	},
+	"dependencies": {
+		"@bedrock/protocol": "0.1.0"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	}
+}

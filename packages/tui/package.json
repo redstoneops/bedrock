@@ -1,0 +1,31 @@
+{
+	"name": "@bedrock/tui",
+	"version": "0.1.0",
+	"description": "Mission Control terminal UI on pi-tui.",
+	"type": "module",
+	"license": "MIT",
+	"exports": {
+		".": {
+			"bedrock-source": "./src/index.ts",
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"test": "vitest run --root ../.. packages/tui"
+	},
+	"dependencies": {
+		"@bedrock/protocol": "0.1.0",
+		"@earendil-works/pi-tui": "1.5.2",
+		"diff": "8.0.4"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	}
+}

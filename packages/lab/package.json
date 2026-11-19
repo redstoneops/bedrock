@@ -1,0 +1,33 @@
+{
+	"name": "@bedrock/lab",
+	"version": "0.1.0",
+	"description": "Beacon and Anvil: benchmarks, ablations, metrics and the meta-harness evolve loop.",
+	"type": "module",
+	"license": "MIT",
+	"exports": {
+		".": {
+			"bedrock-source": "./src/index.ts",
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"test": "vitest run --root ../.. packages/lab"
+	},
+	"dependencies": {
+		"@bedrock/protocol": "0.1.0",
+		"@bedrock/core": "0.1.0",
+		"@bedrock/ai": "0.1.0",
+		"@bedrock/isolation": "0.1.0",
+		"yaml": "2.9.0"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	}
+}

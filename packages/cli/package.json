@@ -1,0 +1,44 @@
+{
+	"name": "@bedrock/cli",
+	"version": "0.1.0",
+	"description": "The bedrock command-line interface (bedrock / br).",
+	"type": "module",
+	"license": "MIT",
+	"exports": {
+		".": {
+			"bedrock-source": "./src/index.ts",
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"bin"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"test": "vitest run --root ../.. packages/cli"
+	},
+	"dependencies": {
+		"@bedrock/protocol": "0.1.0",
+		"@bedrock/ai": "0.1.0",
+		"@bedrock/core": "0.1.0",
+		"@bedrock/daemon": "0.1.0",
+		"@bedrock/tui": "0.1.0",
+		"@bedrock/lab": "0.1.0",
+		"@bedrock/memory": "0.1.0",
+		"@bedrock/sandbox": "0.1.0",
+		"@bedrock/context": "0.1.0",
+		"@earendil-works/pi-ai": "1.5.2",
+		"yaml": "2.9.0"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"bin": {
+		"bedrock": "./bin/bedrock.js",
+		"br": "./bin/bedrock.js"
+	}
+}

@@ -1,0 +1,31 @@
+{
+	"name": "@bedrock/daemon",
+	"version": "0.1.0",
+	"description": "bedrockd: session ownership, attach/detach, crash recovery, heartbeats.",
+	"type": "module",
+	"license": "MIT",
+	"exports": {
+		".": {
+			"bedrock-source": "./src/index.ts",
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"test": "vitest run --root ../.. packages/daemon"
+	},
+	"dependencies": {
+		"@bedrock/protocol": "0.1.0",
+		"@bedrock/core": "0.1.0",
+		"@bedrock/context": "0.1.0"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	}
+}

@@ -1,0 +1,34 @@
+{
+	"name": "@bedrock/gate",
+	"version": "0.1.0",
+	"description": "Recipe: gate compiler, check runner, holdout handling and integrity rules.",
+	"type": "module",
+	"license": "MIT",
+	"exports": {
+		".": {
+			"bedrock-source": "./src/index.ts",
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"test": "vitest run --root ../.. packages/gate"
+	},
+	"dependencies": {
+		"@bedrock/protocol": "0.1.0",
+		"@bedrock/sandbox": "0.1.0",
+		"@bedrock/isolation": "0.1.0",
+		"@bedrock/ledger": "0.1.0",
+		"@bedrock/ai": "0.1.0",
+		"@earendil-works/pi-ai": "1.5.2"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	}
+}

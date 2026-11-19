@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createId, defaultConfig, type Gate, type Mission } from "@bedrock/protocol";
+import { createId, type Gate, type Mission } from "@bedrock/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { ArtifactStore, assemblePrompt, EventLog, truncateOutput } from "../src/index.ts";
 

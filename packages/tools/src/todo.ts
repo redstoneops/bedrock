@@ -3,7 +3,7 @@
 import type { AgentTool, AgentToolParams, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { arr, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
-import { failure, type TodoItem, type ToolContext, toDetails } from "./types.ts";
+import { type ToolContext, toDetails } from "./types.ts";
 
 const TODO_DESCRIPTION = `Read or update the task checklist for this session. Call with no items to read it. Provide items to replace the list; each item has text and a status of pending, in_progress, completed or cancelled.
 

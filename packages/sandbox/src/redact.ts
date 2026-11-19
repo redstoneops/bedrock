@@ -33,7 +33,7 @@ const RULES: Array<{ name: string; pattern: RegExp; replace: (match: string, ...
 		name: "assignment",
 		pattern:
 			/\b([A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|API_KEY|APIKEY|ACCESS_KEY|PRIVATE_KEY|CREDENTIAL)[A-Z0-9_]*)\s*[:=]\s*["']?([^\s"',]{6,})["']?/gi,
-		replace: (match, name: string) => `${name}=***`,
+		replace: (_match, name: string) => `${name}=***`,
 	},
 	// Authorization headers.
 	{

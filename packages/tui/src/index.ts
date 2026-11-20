@@ -1,2 +1,4 @@
-// @bedrock/tui: Mission Control terminal UI on pi-tui.
-export const PACKAGE_NAME = "@bedrock/tui";
+// @bedrock/tui: Mission Control on pi-tui.
+
+export * from "./render.ts";
+export * from "./view.ts";

@@ -1,2 +1,3 @@
-// @bedrock/kernel: Persistent Python kernel bridge: context as a variable, tool bindings, spawn().
-export const PACKAGE_NAME = "@bedrock/kernel";
+// @bedrock/kernel: persistent Python kernel with context-as-a-variable helpers.
+
+export * from "./kernel.ts";

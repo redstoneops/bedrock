@@ -1,2 +1,5 @@
-// @bedrock/memory: Chest and Bookshelf: task state files, ACE playbook, harness state and guarded refinement.
-export const PACKAGE_NAME = "@bedrock/memory";
+// @bedrock/memory: Chest, Bookshelf and guarded refinement.
+
+export * from "./chest.ts";
+export * from "./harness-state.ts";
+export * from "./playbook.ts";

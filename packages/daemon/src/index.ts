@@ -1,2 +1,5 @@
-// @bedrock/daemon: bedrockd: session ownership, attach/detach, crash recovery, heartbeats.
-export const PACKAGE_NAME = "@bedrock/daemon";
+// @bedrock/daemon: bedrockd and its client.
+
+export * from "./client.ts";
+export * from "./daemon.ts";
+export * from "./recovery.ts";

@@ -21,10 +21,13 @@
 		"test": "vitest run --root ../.. packages/lab"
 	},
 	"dependencies": {
-		"@bedrock/protocol": "0.1.0",
-		"@bedrock/core": "0.1.0",
 		"@bedrock/ai": "0.1.0",
+		"@bedrock/context": "0.1.0",
+		"@bedrock/core": "0.1.0",
 		"@bedrock/isolation": "0.1.0",
+		"@bedrock/ledger": "0.1.0",
+		"@bedrock/protocol": "0.1.0",
+		"@bedrock/sandbox": "0.1.0",
 		"yaml": "2.9.0"
 	},
 	"engines": {

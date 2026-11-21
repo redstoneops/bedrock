@@ -4,8 +4,8 @@
 // whether the *holdout* passed. False completion — a run that claims success
 // while the holdout fails — is a first-class metric, not an afterthought.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join } from "node:path";
 import type { BedrockConfig, FinalState, GateResult } from "@bedrock/protocol";
 
 export interface BenchTask {
@@ -22,6 +22,10 @@ export interface BenchTask {
 	maxUsd?: number;
 	/** Tags used by ablations and splits (e.g. "hard", "long"). */
 	tags?: string[];
+	/** Directory copied into a fresh git repository as the task's starting state (relative to the suite file). */
+	fixture?: string;
+	/** Where the task came from, for adapters (e.g. a Terminal-Bench task directory). */
+	source?: { kind: "local" | "terminal-bench"; dir: string };
 }
 
 export interface AttemptResult {
@@ -118,6 +122,9 @@ export interface SuiteManifest {
 
 export function loadSuite(path: string): SuiteManifest {
 	const manifest = JSON.parse(readFileSync(path, "utf8")) as SuiteManifest;
+	const base = dirname(path);
+	for (const task of manifest.tasks ?? [])
+		if (task.fixture && !isAbsolute(task.fixture)) task.fixture = join(base, task.fixture);
 	if (!Array.isArray(manifest.tasks) || manifest.tasks.length === 0) throw new Error(`${path} has no tasks`);
 	for (const task of manifest.tasks) {
 		if (!task.id || !task.goal || task.gate.length === 0)
@@ -204,7 +211,6 @@ export function loadRun(dir: string): RunRecord | undefined {
 /** Every run under `runsDir`, newest first. */
 export function listRuns(runsDir: string): RunRecord[] {
 	if (!existsSync(runsDir)) return [];
-	const { readdirSync } = require("node:fs") as typeof import("node:fs");
 	return readdirSync(runsDir)
 		.map((name) => loadRun(join(runsDir, name)))
 		.filter((run): run is RunRecord => run !== undefined)

@@ -1,6 +1,7 @@
 // @bedrock/cli: shared runtime wiring for every mode.
 
-import { mkdirSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Ai } from "@bedrock/ai";
 import { ArtifactStore, EventLog } from "@bedrock/context";
@@ -8,6 +9,7 @@ import { Ledger } from "@bedrock/ledger";
 import { type BedrockConfig, createId, type Id } from "@bedrock/protocol";
 import { FileAuditLog, Sandbox } from "@bedrock/sandbox";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
+import { installScript, loadScript } from "./scripted.ts";
 
 export interface Runtime {
 	config: BedrockConfig;
@@ -19,6 +21,8 @@ export interface Runtime {
 	audit: FileAuditLog;
 	missionId: Id<"mission">;
 	sessionId: Id<"session">;
+	/** Set when BEDROCK_SCRIPT replaced the real models. */
+	scripted?: string;
 	close(): void;
 }
 
@@ -53,7 +57,11 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 		network: "none",
 		audit,
 	});
-	const ai = new Ai({ config: options.config, models: options.models ?? builtinModels() });
+	const models = options.models ?? builtinModels();
+	const scriptPath = process.env.BEDROCK_SCRIPT;
+	if (scriptPath) installScript(models, options.config, loadScript(scriptPath));
+	const ai = new Ai({ config: options.config, models });
+	excludeStateDir(options.workspace, stateDir);
 	return {
 		config: options.config,
 		ai,
@@ -64,8 +72,26 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 		audit,
 		missionId,
 		sessionId,
+		scripted: scriptPath,
 		close: () => ledger.close(),
 	};
+}
+
+/**
+ * Keeps `.bedrock/` out of the user's git status by adding it to the local,
+ * uncommitted `.git/info/exclude` (never to a tracked .gitignore).
+ */
+export function excludeStateDir(workspace: string, stateDir: string): void {
+	const gitDir = spawnSync("git", ["rev-parse", "--git-common-dir"], { cwd: workspace, encoding: "utf8" });
+	if (gitDir.status !== 0) return;
+	const relative = stateDir.startsWith(`${workspace}/`) ? stateDir.slice(workspace.length + 1) : undefined;
+	if (!relative) return;
+	const ignored = spawnSync("git", ["check-ignore", "-q", relative], { cwd: workspace });
+	if (ignored.status === 0) return;
+	const exclude = join(workspace, gitDir.stdout.trim(), "info", "exclude");
+	const existing = existsSync(exclude) ? readFileSync(exclude, "utf8") : "";
+	mkdirSync(join(exclude, ".."), { recursive: true });
+	appendFileSync(exclude, `${existing.endsWith("\n") || existing.length === 0 ? "" : "\n"}/${relative}/\n`);
 }
 
 /** Environment variables that indicate at least one provider is configured. */
@@ -91,6 +117,7 @@ const CREDENTIAL_ENV = [
  * warning, not a hard stop: OAuth logins and cloud profiles are valid too.
  */
 export function hasProviderCredentials(env: NodeJS.ProcessEnv = process.env): boolean {
+	if (env.BEDROCK_SCRIPT) return true;
 	return CREDENTIAL_ENV.some((name) => (env[name] ?? "").trim().length > 0);
 }
 

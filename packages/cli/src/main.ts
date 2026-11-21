@@ -1,16 +1,24 @@
 // @bedrock/cli: the bedrock command.
 
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { Ai } from "@bedrock/ai";
-import { runMission, scout } from "@bedrock/core";
+import { MissionController, QuickSession, runMission, scout } from "@bedrock/core";
+import { recoverSessions } from "@bedrock/daemon";
 import { compileGate, describeResult, runGate } from "@bedrock/gate";
-import { type Mission, type Role, shortId } from "@bedrock/protocol";
-import { createFinishTool, createTools, type FinishReport } from "@bedrock/tools";
-import type { AgentEvent } from "@earendil-works/pi-agent-core";
-import { Agent } from "@earendil-works/pi-agent-core";
+import { defaultPlaybookPath, Playbook } from "@bedrock/memory";
+import type {
+	BedrockConfig,
+	BedrockEvent,
+	Mission,
+	PermissionDecision,
+	PermissionRequest,
+	Role,
+} from "@bedrock/protocol";
+import { shortId } from "@bedrock/protocol";
+import { MissionApp } from "@bedrock/tui";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { applyOverrides, loadConfig } from "./config.ts";
 import { createRuntime, hasProviderCredentials, isInteractive, type Runtime, readLine } from "./runtime.ts";
@@ -20,57 +28,48 @@ const VERSION = "0.1.0";
 const HELP = `bedrock — agents that stand on verified ground
 
 Usage:
-  bedrock                          interactive session (TUI when attached, plain otherwise)
-  bedrock quick [prompt...]        one plain agent loop, no gate
-  bedrock run --goal "..." [--gate "cmd"]   autonomous mission with a compiled gate
-  bedrock scout                    print the scout report for this repo
-  bedrock gate [--gate "cmd"]      compile and run the gate once, no agent
-  bedrock models [query]           list models from the pi catalog
+  bedrock                                  Mission Control (TUI): type a goal, watch it get verified
+  bedrock run --goal "..." [--gate "cmd"]  autonomous mission (TUI on a terminal, prose/JSONL otherwise)
+  bedrock quick [prompt...]                plain agent loop, no gate (chat TUI on a terminal)
+  bedrock scout                            print the scout report for this repo
+  bedrock gate [--gate "cmd"]              compile and run the gate once, no agent
+  bedrock models [query]                   list models from the pi catalog
+  bedrock sessions                         list recorded sessions and which were interrupted
+  bedrock proof [mission-id]               print the latest (or a given) proof of work
   bedrock --version | --help
 
 Options:
   --goal <text>        the mission goal (run)
   --gate <cmd>         a gate command; repeatable, always included, never weakened
-  --model <ref>        model for the worker role (provider/model)
-  --role <role>        role to apply --model to (default: worker)
+  --model <ref>        model for the worker role (provider/model); --role targets another role
   --max-usd <n>        budget in dollars
-  --max-attempts <n>   how many attempts before stopping (default 3)
-  --turns <n>          per-attempt turn cap (default 120)
-  --parallel <n>       maximum parallel workers (default from config)
+  --max-attempts <n>   total workers across all rounds (default 3)
+  --parallel <n>       maximum parallel workers per round (default from config, 4)
+  --turns <n>          per-worker turn cap (default 120)
   --permissions <p>    yolo | standard | strict
   --isolation <i>      worktree | copy | container
-  --json               emit a JSONL event stream instead of prose
+  --[no-]advisor       advisor model notes every few turns (default from config)
+  --[no-]red-team      adversarial L4 review of passing candidates (default from config)
+  --kernel             give workers a persistent Python kernel
+  --no-tui             plain output even on a terminal
+  --json               JSONL event stream (implies --no-tui)
   --yes                approve the compiled gate without asking
-  --config <path>      config file (default: .bedrock/config.yml, then ~/.bedrock/config.yml)
 
-Commands that run a mission write state to <workspace>/.bedrock: the SQLite ledger,
-a JSONL event log per session, content-addressed artifacts and an audit log.`;
+State lives in <workspace>/.bedrock: SQLite ledger, JSONL session logs, artifacts,
+audit log, the Chest (recipe/plan/progress/failures) and proof.md per mission.
+Workers run in git worktrees under ~/.bedrock/worktrees; your checkout changes only
+when a verified candidate is applied.`;
 
 interface Cli {
 	command: string;
 	positionals: string[];
-	values: {
-		goal?: string;
-		gate?: string[];
-		model?: string;
-		role?: string;
-		"max-usd"?: string;
-		"max-attempts"?: string;
-		turns?: string;
-		parallel?: string;
-		permissions?: string;
-		isolation?: string;
-		json?: boolean;
-		yes?: boolean;
-		help?: boolean;
-		version?: boolean;
-		config?: string;
-	};
+	values: Record<string, string | string[] | boolean | undefined>;
 }
 
 function parseCli(): Cli {
 	const { values, positionals } = parseArgs({
 		allowPositionals: true,
+		allowNegative: true,
 		options: {
 			goal: { type: "string" },
 			gate: { type: "string", multiple: true },
@@ -82,64 +81,71 @@ function parseCli(): Cli {
 			parallel: { type: "string" },
 			permissions: { type: "string" },
 			isolation: { type: "string" },
+			advisor: { type: "boolean" },
+			"red-team": { type: "boolean" },
+			kernel: { type: "boolean" },
+			tui: { type: "boolean" },
 			json: { type: "boolean" },
 			yes: { type: "boolean" },
 			help: { type: "boolean", short: "h" },
 			version: { type: "boolean", short: "v" },
-			config: { type: "string" },
 		},
 	});
 	return { command: positionals[0] ?? "", positionals: positionals.slice(1), values };
 }
 
-function number(value: string | undefined): number | undefined {
+const str = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
+const list = (value: unknown): string[] | undefined => (Array.isArray(value) ? value.map(String) : undefined);
+
+function number(value: unknown): number | undefined {
 	if (value === undefined) return undefined;
 	const parsed = Number(value);
-	if (!Number.isFinite(parsed) || parsed < 0) throw new Error(`expected a non-negative number, got "${value}"`);
+	if (!Number.isFinite(parsed) || parsed < 0)
+		throw new Error(`expected a non-negative number, got "${String(value)}"`);
 	return parsed;
 }
 
-/** Prints an event as one JSON line, for `--json` and CI. */
-function jsonEmitter(): (event: { type: string; [key: string]: unknown }) => void {
-	return (event) => {
-		process.stdout.write(`${JSON.stringify(event)}\n`);
-	};
+function wantsTui(cli: Cli): boolean {
+	return isInteractive() && cli.values.json !== true && cli.values.tui !== false;
 }
 
-/** Human-readable stream of mission events. */
-function proseEmitter(): (event: { type: string; [key: string]: unknown }) => void {
+/** Prints an event as one JSON line, for `--json` and CI. */
+function jsonEmitter(): (event: BedrockEvent) => void {
+	return (event) => process.stdout.write(`${JSON.stringify(event)}\n`);
+}
+
+/** Human-readable stream of mission events, for pipes and logs. */
+function proseEmitter(): (event: BedrockEvent) => void {
 	return (event) => {
 		switch (event.type) {
 			case "mission_phase":
-				process.stdout.write(`\n[${String(event.phase)}]\n`);
+				process.stdout.write(`\n[${event.phase}]\n`);
 				break;
-			case "gate_compiled": {
-				process.stdout.write(`gate: ${String(event.checks)} checks\n`);
+			case "gate_compiled":
+				process.stdout.write(`gate: ${event.checks} checks\n`);
 				break;
-			}
-			case "worker_event": {
-				const inner = event.event as { type: string; text?: string; name?: string; ok?: boolean; turn?: number };
-				if (inner.type === "text" && inner.text) process.stdout.write(inner.text);
-				else if (inner.type === "turn") process.stdout.write(`\n(turn ${inner.turn})\n`);
-				else if (inner.type === "tool_start") process.stdout.write(`\n  → ${inner.name}\n`);
-				else if (inner.type === "tool_end") process.stdout.write(`    ${inner.ok ? "ok" : "failed"}\n`);
+			case "assistant_delta":
+				process.stdout.write(event.text);
 				break;
-			}
-			case "verification": {
-				const result = event.result as Parameters<typeof describeResult>[0];
-				process.stdout.write(`\n${describeResult(result)}\n`);
+			case "tool_call":
+				if (event.card.status !== "running")
+					process.stdout.write(`\n  ${event.card.status === "ok" ? "✓" : "✗"} ${event.card.label}\n`);
 				break;
-			}
-			case "budget_decision": {
-				const decision = event.decision as { action: string; reason: string };
-				process.stdout.write(`\nbudget: ${decision.action} (${decision.reason})\n`);
+			case "advisor_note":
+				process.stdout.write(`\n  advisor ${event.note.tag}: ${event.note.text}\n`);
 				break;
-			}
-			case "mission_finish": {
-				const proof = event.proof as { finalState: string; summary: string };
-				process.stdout.write(`\n== ${proof.finalState.toUpperCase()} ==\n${proof.summary}\n`);
+			case "verification":
+				process.stdout.write(`\n${describeResult(event.result)}\n`);
 				break;
-			}
+			case "budget_decision":
+				process.stdout.write(`\nbudget: ${event.decision.action} (${event.decision.reason})\n`);
+				break;
+			case "notice":
+				process.stdout.write(`\n${event.level === "info" ? "" : `${event.level}: `}${event.text}\n`);
+				break;
+			case "mission_finish":
+				process.stdout.write(`\n== ${event.finalState.toUpperCase()} ==\n${event.proof.summary}\n`);
+				break;
 		}
 	};
 }
@@ -156,164 +162,75 @@ async function main(): Promise<number> {
 		process.stdout.write(`bedrock ${VERSION}\n`);
 		return 0;
 	}
-	if (cli.values.help || (cli.command === "" && cli.values.goal === undefined && !isInteractive())) {
+	if (cli.values.help || (cli.command === "" && !isInteractive())) {
 		process.stdout.write(`${HELP}\n`);
-		return cli.command === "" && !cli.values.help ? 0 : 0;
+		return 0;
 	}
 
 	const workspace = process.cwd();
 	const loaded = loadConfig(workspace);
 	const config = applyOverrides(loaded.config, {
-		model: cli.values.model,
-		role: cli.values.role as Role | undefined,
+		model: str(cli.values.model),
+		role: str(cli.values.role) as Role | undefined,
 		maxUsd: number(cli.values["max-usd"]),
-		permissions: cli.values.permissions,
-		isolation: cli.values.isolation,
+		permissions: str(cli.values.permissions),
+		isolation: str(cli.values.isolation),
 		parallel: number(cli.values.parallel),
 	});
+	if (typeof cli.values.advisor === "boolean") config.loop.advisor = cli.values.advisor;
+	if (typeof cli.values["red-team"] === "boolean") config.loop.redTeam = cli.values["red-team"];
+	if (cli.values.kernel === true) config.loop.kernel = true;
 	for (const warning of loaded.warnings) process.stderr.write(`config: ${warning}\n`);
 
 	switch (cli.command) {
 		case "":
-			process.stdout.write(
-				'Bedrock is not attached to a TUI in this build. Use `bedrock quick "..."` or `bedrock run --goal "..."`.\n',
-			);
-			return 0;
+			return missionMode(cli, config, workspace, undefined);
+		case "run": {
+			const goal = str(cli.values.goal) ?? cli.positionals.join(" ");
+			if (goal.trim().length === 0) {
+				process.stderr.write('run mode needs --goal "..."\n');
+				return 2;
+			}
+			return missionMode(cli, config, workspace, goal);
+		}
 		case "quick":
 			return quickMode(cli, config, workspace);
-		case "run":
-			return runMode(cli, config, workspace);
 		case "scout":
-			return scoutMode(workspace);
+			process.stdout.write(`${JSON.stringify(scout({ workspace }), null, 2)}\n`);
+			return 0;
 		case "gate":
 			return gateMode(cli, config, workspace);
 		case "models":
 			return modelsMode(cli);
+		case "sessions":
+			return sessionsMode(config);
+		case "proof":
+			return proofMode(cli, config);
 		default:
 			process.stderr.write(`unknown command "${cli.command}"\n\n${HELP}\n`);
 			return 2;
 	}
 }
 
-async function quickMode(
-	cli: Cli,
-	config: Parameters<typeof createRuntime>[0]["config"],
-	workspace: string,
-): Promise<number> {
-	const prompt = [cli.positionals.join(" "), cli.values.goal ?? ""].join(" ").trim();
-	if (prompt.length === 0) {
-		process.stderr.write('quick mode needs a prompt: bedrock quick "fix the failing test"\n');
-		return 2;
-	}
-	if (!hasProviderCredentials()) {
-		process.stderr.write(
-			"no provider credentials found. Set an API key (for example ANTHROPIC_API_KEY or OPENAI_API_KEY) or log in with pi, then retry.\n",
-		);
-		return 1;
-	}
-	const runtime = createRuntime({ config, workspace, autonomous: !isInteractive() });
-	let resolved: ReturnType<Runtime["ai"]["resolve"]>;
-	try {
-		resolved = runtime.ai.resolve("worker");
-	} catch (error) {
-		process.stderr.write(
-			`${(error as Error).message}\nSet a provider API key and a model in .bedrock/config.yml, or pass --model.\n`,
-		);
-		runtime.close();
-		return 1;
-	}
-	const tools = createTools({
-		workspace,
-		sandbox: runtime.sandbox,
-		artifacts: runtime.artifacts,
-		todos: [],
-		ask: async (question) => readLine(`\n[ask] ${question} > `),
-		onPermission: async (request, decision) => {
-			const answer = await readLine(
-				`\n[permission] ${decision.reason}: ${request.command ?? request.tool}? [y/N] > `,
-			);
-			return answer?.toLowerCase().startsWith("y") ?? false;
-		},
-	});
-	let report: FinishReport | undefined;
-	tools.push(
-		createFinishTool({
-			onReport: (value) => {
-				report = value;
-			},
-		}) as (typeof tools)[number],
+function requireCredentials(): boolean {
+	if (hasProviderCredentials()) return true;
+	process.stderr.write(
+		"no provider credentials found. Set an API key (for example ANTHROPIC_API_KEY or OPENAI_API_KEY), then retry.\n",
 	);
-	const agent = new Agent({
-		initialState: {
-			systemPrompt: [
-				"You are Bedrock in quick mode: a fast, careful coding agent in the current workspace.",
-				"Make the smallest change that solves the task. Read before you edit; hashline reads return tags and edit patches must carry them.",
-				"Run the check that proves the work, then call finish with the commands you ran. Never claim a command passed unless you ran it.",
-			].join("\n"),
-			model: resolved.model,
-			thinkingLevel: resolved.effort === "off" ? "off" : (resolved.effort as "low" | "medium" | "high"),
-			tools,
-		},
-		streamFn: runtime.ai.models.streamSimple.bind(runtime.ai.models),
-		afterToolCall: async (context) => {
-			if (context.toolCall.name === "finish") return undefined;
-			return undefined;
-		},
-	});
-	agent.subscribe((event: AgentEvent) => {
-		if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-			process.stdout.write(event.assistantMessageEvent.delta);
-		} else if (event.type === "tool_execution_start") {
-			process.stdout.write(`\n  → ${event.toolName}\n`);
-		} else if (event.type === "tool_execution_end") {
-			process.stdout.write(`    ${event.isError ? "failed" : "ok"}\n`);
-		}
-	});
-	try {
-		await agent.prompt(prompt);
-	} catch (error) {
-		process.stderr.write(`\n${(error as Error).message}\n`);
-		return 1;
-	} finally {
-		runtime.close();
-	}
-	process.stdout.write(
-		`\n${report ? `finished: ${(report as FinishReport).summary}` : "finished without a report"}\n`,
-	);
-	return 0;
+	return false;
 }
 
-async function runMode(
-	cli: Cli,
-	config: Parameters<typeof createRuntime>[0]["config"],
+function newMission(
+	runtime: Runtime,
+	config: BedrockConfig,
 	workspace: string,
-): Promise<number> {
-	const goal = cli.values.goal ?? cli.positionals.join(" ");
-	if (goal.trim().length === 0) {
-		process.stderr.write('run mode needs --goal "..."\n');
-		return 2;
-	}
-	if (!hasProviderCredentials()) {
-		process.stderr.write(
-			"no provider credentials found. Set an API key (for example ANTHROPIC_API_KEY or OPENAI_API_KEY) or log in with pi, then retry.\n",
-		);
-		return 1;
-	}
-	const runtime = createRuntime({ config, workspace, autonomous: true });
-	if (!existsSync(join(workspace, ".git"))) {
-		process.stderr.write("warning: no git repository here; the gate cannot bind results to a commit\n");
-	}
+	goal: string,
+	gateCommands?: string[],
+): Mission {
 	const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" });
-	const mission: Mission = {
+	return {
 		id: runtime.missionId,
-		spec: {
-			goal,
-			mode: "run",
-			budget: config.budget,
-			isolation: config.isolation,
-			gateCommands: cli.values.gate,
-			constraints: [],
-		},
+		spec: { goal, mode: "run", budget: config.budget, isolation: config.isolation, gateCommands, constraints: [] },
 		status: "running",
 		phase: "bootstrap",
 		createdAt: new Date().toISOString(),
@@ -322,76 +239,237 @@ async function runMode(
 		baseTree: head.status === 0 ? head.stdout.trim() : "nogit",
 		baseCommit: head.status === 0 ? head.stdout.trim() : undefined,
 	};
-	const emit = cli.values.json ? jsonEmitter() : proseEmitter();
-	let result: Awaited<ReturnType<typeof runMission>>;
+}
+
+interface MissionHooks {
+	emit: (event: BedrockEvent) => void;
+	controller: MissionController;
+	ask?: (question: string, options?: string[]) => Promise<string | undefined>;
+	onPermission?: (request: PermissionRequest, decision: PermissionDecision) => Promise<boolean>;
+	approveGate?: Parameters<typeof runMission>[0]["approveGate"];
+	/** Called with the running cost before each event is emitted. */
+	onCost?: (usd: number) => void;
+}
+
+/** Runs one mission with the configured harness features. */
+async function executeMission(cli: Cli, config: BedrockConfig, workspace: string, goal: string, hooks: MissionHooks) {
+	const runtime = createRuntime({ config, workspace, autonomous: true });
+	if (runtime.scripted)
+		hooks.emit({
+			type: "notice",
+			missionId: runtime.missionId,
+			level: "warning",
+			text: `scripted model from ${runtime.scripted} (no real provider)`,
+			at: new Date().toISOString(),
+		});
+	const playbook = config.memory.playbook ? new Playbook({ path: defaultPlaybookPath(config.stateDir) }) : undefined;
 	try {
-		result = await runMission({
-			mission,
+		return await runMission({
+			mission: newMission(runtime, config, workspace, goal, list(cli.values.gate)),
 			ai: runtime.ai,
 			sandbox: runtime.sandbox,
 			artifacts: runtime.artifacts,
-			ledger: runtime.ledger as never,
+			ledger: runtime.ledger,
 			eventLog: runtime.eventLog,
-			onEvent: emit,
+			onEvent: (event) => {
+				hooks.onCost?.(runtime.ai.cost.usd);
+				hooks.emit(event);
+			},
+			controller: hooks.controller,
+			ask: hooks.ask,
+			onPermission: hooks.onPermission,
+			approveGate: hooks.approveGate,
+			stateDir: config.stateDir,
 			maxAttempts: number(cli.values["max-attempts"]) ?? 3,
+			maxParallel: config.loop.maxParallelWorkers,
 			turnCap: number(cli.values.turns) ?? config.loop.workerTurnCap,
-			validateAcceptance: false,
-			approveGate: async (gate) => {
-				if (cli.values.yes || !isInteractive()) return gate;
+			modelPlanning: !runtime.scripted,
+			advisor: config.loop.advisor && !runtime.scripted,
+			redTeam: config.loop.redTeam && !runtime.scripted,
+			reflect: config.memory.playbook && !runtime.scripted,
+			playbook,
+			kernel: config.loop.kernel,
+			isolation: config.isolation === "worktree" ? "worktree" : "inplace",
+		});
+	} finally {
+		runtime.close();
+	}
+}
+
+async function missionMode(
+	cli: Cli,
+	config: BedrockConfig,
+	workspace: string,
+	goal: string | undefined,
+): Promise<number> {
+	if (!requireCredentials()) return 1;
+	if (!wantsTui(cli)) {
+		if (!goal) return 2;
+		const emit = cli.values.json ? jsonEmitter() : proseEmitter();
+		const controller = new MissionController();
+		process.once("SIGINT", () => controller.cancel());
+		try {
+			const result = await executeMission(cli, config, workspace, goal, {
+				emit,
+				controller,
+				approveGate: async (gate) => {
+					if (cli.values.yes || !isInteractive()) return { ...gate, approved: true, approvedBy: "policy" };
+					process.stdout.write(
+						`\nGate: ${gate.rationale}\n${gate.checks.map((check) => `- ${check.name}: ${check.command}`).join("\n")}\n`,
+					);
+					const answer = await readLine("Run this gate? [Y/n] > ");
+					return { ...gate, approved: !answer?.toLowerCase().startsWith("n"), approvedBy: "user" };
+				},
+			});
+			if (cli.values.json)
 				process.stdout.write(
-					`\nGate: ${gate.rationale}\n${gate.checks.map((check) => `- ${check.name}: ${check.command}`).join("\n")}\n`,
+					`${JSON.stringify({ type: "result", finalState: result.finalState, cost: result.proof.cost, proof: result.proofPath })}\n`,
 				);
-				const answer = await readLine("Run this gate? [Y/n] > ");
-				return answer?.toLowerCase().startsWith("n")
-					? { ...gate, checks: gate.checks, rationale: "user declined; running without approval" }
-					: { ...gate, approved: true, approvedBy: "user" as const };
+			else if (result.proofPath) process.stdout.write(`proof: ${result.proofPath}\n`);
+			return result.finalState === "passed" ? 0 : 1;
+		} catch (error) {
+			process.stderr.write(`bedrock: ${(error as Error).message}\n`);
+			return 1;
+		}
+	}
+
+	// Mission Control.
+	let controller: MissionController | undefined;
+	let lastProof: string | undefined;
+	let finished: (code: number) => void = () => {};
+	const done = new Promise<number>((resolve) => {
+		finished = resolve;
+	});
+	let exitCode = 0;
+	const app: MissionApp = new MissionApp({
+		onSubmit: (text) => {
+			if (controller && app.view.busy) {
+				controller.steer(text);
+				return;
+			}
+			void start(text);
+		},
+		onInterrupt: () => controller?.cancel(),
+		onQuit: () => {
+			controller?.cancel();
+			finished(exitCode);
+		},
+		onCommand: (command) => {
+			if (command === "proof") {
+				app.note(lastProof ? `proof of work: ${lastProof}` : "no mission has finished yet");
+				return true;
+			}
+			return false;
+		},
+	});
+	const start = async (missionGoal: string) => {
+		controller = new MissionController();
+		app.setBusy(true, `working on: ${missionGoal}`);
+		app.setCost(0, config.budget.usd);
+		try {
+			const result = await executeMission(cli, config, workspace, missionGoal, {
+				controller,
+				onCost: (usd) => app.setCost(usd, config.budget.usd),
+				emit: (event) => app.apply(event),
+				ask: (question, options) => app.ask(question, options),
+				onPermission: async (request, decision) => {
+					const answer = await app.ask(`allow ${request.command ?? request.tool}? (${decision.reason})`, [
+						"y",
+						"n",
+					]);
+					return answer?.toLowerCase().startsWith("y") ?? false;
+				},
+			});
+			lastProof = result.proofPath;
+			app.setCost(result.proof.cost.usd);
+			exitCode = result.finalState === "passed" ? 0 : 1;
+			if (result.proofPath) app.note(`proof of work written to ${result.proofPath}`);
+			if (goal) app.note("mission finished · type another goal, or /quit");
+		} catch (error) {
+			app.setBusy(false, `error: ${(error as Error).message}`);
+			app.note(`mission failed to run: ${(error as Error).message}`);
+			exitCode = 1;
+		}
+	};
+	app.start();
+	if (goal) void start(goal);
+	const code = await done;
+	app.stop();
+	return code;
+}
+
+async function quickMode(cli: Cli, config: BedrockConfig, workspace: string): Promise<number> {
+	const prompt = [cli.positionals.join(" "), str(cli.values.goal) ?? ""].join(" ").trim();
+	if (!requireCredentials()) return 1;
+	const runtime = createRuntime({ config, workspace, autonomous: !wantsTui(cli) });
+	try {
+		if (!wantsTui(cli)) {
+			if (prompt.length === 0) {
+				process.stderr.write('quick mode needs a prompt: bedrock quick "fix the failing test"\n');
+				return 2;
+			}
+			const emit = cli.values.json ? jsonEmitter() : proseEmitter();
+			const session = new QuickSession({
+				ai: runtime.ai,
+				workspace,
+				sandbox: runtime.sandbox,
+				artifacts: runtime.artifacts,
+				onEvent: emit,
+			});
+			await session.send(prompt);
+			process.stdout.write("\n");
+			return 0;
+		}
+		let finished: () => void = () => {};
+		const done = new Promise<void>((resolve) => {
+			finished = resolve;
+		});
+		let session: QuickSession | undefined;
+		const app: MissionApp = new MissionApp({
+			layout: "chat",
+			onSubmit: (text) => {
+				if (!session) return;
+				const wasBusy = session.busy;
+				if (!wasBusy) app.setBusy(true, "thinking…");
+				void session.send(text).finally(() => {
+					if (!wasBusy) app.setBusy(false, `ready · ${runtime.ai.cost.usd.toFixed(4)} USD so far`);
+				});
+			},
+			onInterrupt: () => session?.abort(),
+			onQuit: () => finished(),
+		});
+		session = new QuickSession({
+			ai: runtime.ai,
+			workspace,
+			sandbox: runtime.sandbox,
+			artifacts: runtime.artifacts,
+			onEvent: (event) => {
+				app.setCost(runtime.ai.cost.usd, config.budget.usd);
+				app.apply(event);
+			},
+			ask: (question, options) => app.ask(question, options),
+			onPermission: async (request, decision) => {
+				const answer = await app.ask(`allow ${request.command ?? request.tool}? (${decision.reason})`, ["y", "n"]);
+				return answer?.toLowerCase().startsWith("y") ?? false;
 			},
 		});
-	} catch (error) {
-		process.stderr.write(`bedrock: ${(error as Error).message}\n`);
+		app.view.goal = "quick";
+		app.start();
+		if (runtime.scripted) app.note(`scripted model from ${runtime.scripted} (no real provider)`);
+		if (prompt.length > 0) app.editor.onSubmit?.(prompt);
+		await done;
+		app.stop();
+		return 0;
+	} finally {
 		runtime.close();
-		return 1;
 	}
-	runtime.close();
-	if (cli.values.json)
-		process.stdout.write(
-			`${JSON.stringify({ type: "result", finalState: result.finalState, cost: result.proof.cost })}\n`,
-		);
-	return result.finalState === "passed" ? 0 : 1;
 }
 
-async function scoutMode(workspace: string): Promise<number> {
-	const report = scout({ workspace });
-	process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-	return 0;
-}
-
-async function gateMode(
-	cli: Cli,
-	config: Parameters<typeof createRuntime>[0]["config"],
-	workspace: string,
-): Promise<number> {
+async function gateMode(cli: Cli, config: BedrockConfig, workspace: string): Promise<number> {
 	const runtime = createRuntime({ config, workspace, autonomous: true });
-	const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" });
-	const mission: Mission = {
-		id: runtime.missionId,
-		spec: {
-			goal: cli.values.goal ?? "gate check",
-			mode: "run",
-			budget: config.budget,
-			isolation: config.isolation,
-			gateCommands: cli.values.gate,
-		},
-		status: "running",
-		phase: "gate",
-		createdAt: new Date().toISOString(),
-		updatedAt: new Date().toISOString(),
-		workspace,
-		baseTree: head.status === 0 ? head.stdout.trim() : "nogit",
-		baseCommit: head.status === 0 ? head.stdout.trim() : undefined,
-	};
+	const mission = newMission(runtime, config, workspace, str(cli.values.goal) ?? "gate check", list(cli.values.gate));
 	const report = scout({ workspace, mission });
-	const gate = compileGate(mission, report, { userCommands: cli.values.gate });
+	const gate = compileGate(mission, report, { userCommands: list(cli.values.gate) });
 	process.stdout.write(`Gate ${shortId(gate.id)}: ${gate.rationale}\n`);
 	for (const check of gate.checks) process.stdout.write(`- [${check.kind}] ${check.name}: ${check.command}\n`);
 	const result = runGate({
@@ -407,8 +485,7 @@ async function gateMode(
 }
 
 async function modelsMode(cli: Cli): Promise<number> {
-	const runtimeConfig = loadConfig(process.cwd()).config;
-	const ai = new Ai({ config: runtimeConfig, models: builtinModels() });
+	const ai = new Ai({ config: loadConfig(process.cwd()).config, models: builtinModels() });
 	const query = cli.positionals.join(" ").toLowerCase();
 	const models = ai.models
 		.getModels()
@@ -424,6 +501,42 @@ async function modelsMode(cli: Cli): Promise<number> {
 			`${model.provider}/${model.id}  ${model.contextWindow ? `${Math.round(model.contextWindow / 1000)}k ctx` : ""} ${cost}\n`,
 		);
 	}
+	return 0;
+}
+
+function sessionsMode(config: BedrockConfig): number {
+	const sessions = recoverSessions(config.stateDir);
+	if (sessions.length === 0) {
+		process.stdout.write("no recorded sessions\n");
+		return 0;
+	}
+	for (const session of sessions) {
+		const state = session.interrupted ? "INTERRUPTED" : "finished";
+		process.stdout.write(
+			`${session.sessionId}  ${state.padEnd(11)}  ${String(session.events).padStart(5)} events  last phase: ${session.lastPhase ?? "-"}\n`,
+		);
+	}
+	return 0;
+}
+
+function proofMode(cli: Cli, config: BedrockConfig): number {
+	const missions = join(config.stateDir, "missions");
+	if (!existsSync(missions)) {
+		process.stderr.write("no proofs yet\n");
+		return 1;
+	}
+	const wanted = cli.positionals[0];
+	const dirs = readdirSync(missions)
+		.filter((name) => existsSync(join(missions, name, "proof.md")))
+		.sort(
+			(a, b) => statSync(join(missions, b, "proof.md")).mtimeMs - statSync(join(missions, a, "proof.md")).mtimeMs,
+		);
+	const chosen = wanted ? dirs.find((name) => name.startsWith(wanted)) : dirs[0];
+	if (!chosen) {
+		process.stderr.write(wanted ? `no proof for ${wanted}\n` : "no proofs yet\n");
+		return 1;
+	}
+	process.stdout.write(readFileSync(join(missions, chosen, "proof.md"), "utf8"));
 	return 0;
 }
 

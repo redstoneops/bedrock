@@ -80,11 +80,21 @@ export class Ai {
 	readonly models: Models;
 	readonly cost: CostTracker;
 	#overrides = new Map<Role, ModelRef>();
+	#effortOverrides = new Map<Role, Effort>();
 
 	constructor(options: AiOptions) {
 		this.config = options.config;
 		this.models = options.models ?? createModels();
 		this.cost = new CostTracker();
+	}
+
+	/** Raises a role's reasoning effort one step (the budget policy's `escalate`). Returns the new effort. */
+	escalateEffort(role: Role): Effort {
+		const ladder: Effort[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+		const current = this.#effortOverrides.get(role) ?? this.config.roles.roles[role]?.effort ?? "off";
+		const next = ladder[Math.min(ladder.length - 1, Math.max(0, ladder.indexOf(current)) + 1)] ?? "high";
+		this.#effortOverrides.set(role, next);
+		return next;
 	}
 
 	/** Routes a role to another model without touching config (used by escalation). */
@@ -134,7 +144,12 @@ export class Ai {
 			const family = parseModelRef(chosen).provider;
 			effectiveFallbacks = effectiveFallbacks.filter((ref) => parseModelRef(ref).provider !== family);
 		}
-		return { role, model, effort: roleConfig.effort ?? "off", fallbacks: effectiveFallbacks };
+		return {
+			role,
+			model,
+			effort: this.#effortOverrides.get(role) ?? roleConfig.effort ?? "off",
+			fallbacks: effectiveFallbacks,
+		};
 	}
 
 	#lookup(ref: ModelRef): Model<string> | undefined {

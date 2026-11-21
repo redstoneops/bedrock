@@ -19,9 +19,9 @@ runtime (Bun vs Node, resolved in ADR-0002), package names, and some vocabulary.
 
 ## Decision
 
-1. **One consolidated spec** in `PRD.md`, with both original drafts preserved verbatim in
-   `docs/prd/draft-a.md` and `docs/prd/draft-b.md` for traceability. Where they conflict, `PRD.md`
-   states the resolution and this ADR explains it.
+1. **One consolidated spec** in `PRD.md`. Where the drafts conflict, `PRD.md` states the resolution and
+   this ADR explains it. (An earlier version of this ADR promised verbatim copies under `docs/prd/`; they
+   were never committed, and the consolidated PRD is the single source.)
 2. **Functional package names**, one component per package (Draft A's layout), because packages are
    what agents grep and import; playful names do not survive `rg @bedrock/observer`.
 3. **Component codenames survive as vocabulary** in docs and class names where they aid recall:

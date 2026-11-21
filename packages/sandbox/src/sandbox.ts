@@ -1,6 +1,6 @@
 // @bedrock/sandbox: Obsidian. One object that owns policy, sandboxing and the audit trail.
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import type { AuditRecord, PermissionDecision, PermissionPreset, PermissionRequest } from "@bedrock/protocol";
 import { type AuditSink, MemoryAuditLog } from "./audit.ts";
 import { type Classification, classifyCommand } from "./classify.ts";
@@ -172,6 +172,107 @@ export class Sandbox {
 		const denial = detectSandboxDenial(exitCode, `${stdout}\n${stderr}`);
 		this.record({ at: new Date().toISOString(), tool: "bash", command, decision, executed: true, exitCode });
 		return { exitCode, stdout, stderr, durationMs, sandboxDenied: denial.detected, denialSignal: denial.signal };
+	}
+
+	/**
+	 * Non-blocking `run`: streams output through `onOutput`, honors an abort
+	 * signal (the TUI's Esc) and a timeout, and never blocks the event loop, so
+	 * rendering and input stay live during a ten-minute test suite.
+	 */
+	async runAsync(
+		command: string,
+		options: {
+			cwd?: string;
+			timeoutMs?: number;
+			env?: Record<string, string>;
+			signal?: AbortSignal;
+			onOutput?: (chunk: string) => void;
+		} = {},
+	): Promise<CommandOutcome> {
+		const decision = this.check({ tool: "bash", command, cwd: options.cwd ?? this.config.workspace });
+		if (decision.effect === "deny") {
+			this.record({ at: new Date().toISOString(), tool: "bash", command, decision, executed: false });
+			return {
+				exitCode: 126,
+				stdout: "",
+				stderr: `denied: ${decision.reason}`,
+				durationMs: 0,
+				sandboxDenied: false,
+			};
+		}
+		const wrapped = this.wrap(command);
+		const started = performance.now();
+		const cwd = options.cwd ?? this.config.workspace;
+		const maxBytes = 32 * 1024 * 1024;
+		return new Promise<CommandOutcome>((resolve) => {
+			const child = spawn(wrapped.file, wrapped.args, {
+				cwd,
+				env: { ...process.env, ...options.env },
+				stdio: ["ignore", "pipe", "pipe"],
+				detached: process.platform !== "win32",
+			});
+			let stdout = "";
+			let stderr = "";
+			let killedBy: "timeout" | "abort" | undefined;
+			const kill = (reason: "timeout" | "abort") => {
+				killedBy = reason;
+				try {
+					// Kill the whole process group: test runners spawn workers.
+					if (child.pid && process.platform !== "win32") process.kill(-child.pid, "SIGKILL");
+					else child.kill("SIGKILL");
+				} catch {
+					child.kill("SIGKILL");
+				}
+			};
+			const timer = setTimeout(() => kill("timeout"), options.timeoutMs ?? 120_000);
+			const onAbort = () => kill("abort");
+			options.signal?.addEventListener("abort", onAbort, { once: true });
+			child.stdout.setEncoding("utf8");
+			child.stderr.setEncoding("utf8");
+			child.stdout.on("data", (chunk: string) => {
+				if (stdout.length < maxBytes) stdout += chunk;
+				options.onOutput?.(chunk);
+			});
+			child.stderr.on("data", (chunk: string) => {
+				if (stderr.length < maxBytes) stderr += chunk;
+				options.onOutput?.(chunk);
+			});
+			child.on("close", (code) => {
+				clearTimeout(timer);
+				options.signal?.removeEventListener("abort", onAbort);
+				const durationMs = Math.round(performance.now() - started);
+				let exitCode = code ?? 1;
+				if (killedBy === "timeout") {
+					exitCode = 124;
+					stderr += `\n[killed after ${options.timeoutMs ?? 120_000}ms timeout]`;
+				} else if (killedBy === "abort") {
+					exitCode = 130;
+					stderr += "\n[interrupted]";
+				}
+				const cleanOut = redact(stdout).text;
+				const cleanErr = redact(stderr).text;
+				const denial = detectSandboxDenial(exitCode, `${cleanOut}\n${cleanErr}`);
+				this.record({ at: new Date().toISOString(), tool: "bash", command, decision, executed: true, exitCode });
+				resolve({
+					exitCode,
+					stdout: cleanOut,
+					stderr: cleanErr,
+					durationMs,
+					sandboxDenied: denial.detected,
+					denialSignal: denial.signal,
+				});
+			});
+			child.on("error", (error) => {
+				clearTimeout(timer);
+				resolve({
+					exitCode: 127,
+					stdout,
+					stderr: `${stderr}\n${error.message}`,
+					durationMs: Math.round(performance.now() - started),
+					sandboxDenied: false,
+				});
+			});
+		});
 	}
 
 	private record(record: AuditRecord): void {

@@ -229,3 +229,31 @@ describe("Sandbox", () => {
 		expect(interactive.check({ tool: "bash", command: "npm test" }).effect).toBe("ask");
 	});
 });
+
+describe("Sandbox.runAsync", () => {
+	it("streams output, redacts it and reports the exit code", async () => {
+		const sandbox = new Sandbox({ workspace: process.cwd(), preset: "yolo", autonomous: true });
+		const chunks: string[] = [];
+		const outcome = await sandbox.runAsync("echo one; echo TOKEN=supersecret123; exit 3", {
+			onOutput: (chunk) => chunks.push(chunk),
+		});
+		expect(outcome.exitCode).toBe(3);
+		expect(chunks.join("")).toContain("one");
+		expect(outcome.stdout).toContain("TOKEN=***");
+	});
+
+	it("kills on abort and on timeout", async () => {
+		const sandbox = new Sandbox({ workspace: process.cwd(), preset: "yolo", autonomous: true });
+		const controller = new AbortController();
+		const pending = sandbox.runAsync("sleep 10", { signal: controller.signal });
+		setTimeout(() => controller.abort(), 100);
+		expect((await pending).exitCode).toBe(130);
+		expect((await sandbox.runAsync("sleep 10", { timeoutMs: 200 })).exitCode).toBe(124);
+	});
+
+	it("allows reads everywhere but writes only in writable roots", () => {
+		const { profile, params } = seatbeltProfile(workspacePolicy(workspace));
+		expect(profile).toContain("(allow file-read*)");
+		expect(Object.values(params)).toContain(join(workspace, ".bedrock"));
+	});
+});

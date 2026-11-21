@@ -5,7 +5,8 @@
 // read roots and network mode are passed with `-D` parameters instead of being generated
 // per-path, so the policy text is stable and testable.
 
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 export type FilesystemAccess = "read_only" | "workspace_write" | "danger_full_access";
@@ -38,6 +39,12 @@ export const SEATBELT_BASE_POLICY = `(version 1)
 (allow process-info* (target same-sandbox))
 (allow pseudo-tty)
 (allow ipc-posix-sem)
+
+; Reads are allowed everywhere, as in Codex's workspace-write mode: toolchains
+; live under the home directory and worktrees read their gitdir and shared
+; dependency directories. Secret files are kept from the model by the
+; permission policy, and writes are what the profile actually restricts.
+(allow file-read*)
 
 (allow file-read* file-test-existence
   (subpath "/System/Library")
@@ -193,12 +200,29 @@ export function containerArgs(options: {
 	return args;
 }
 
+/** Temporary directories test runners and compilers expect to write to. */
+function tempRoots(): string[] {
+	const roots = [tmpdir(), "/tmp", "/private/tmp"];
+	const resolved: string[] = [];
+	for (const root of roots) {
+		resolved.push(root);
+		try {
+			resolved.push(realpathSync(root));
+		} catch {
+			// A missing temp root is simply not writable.
+		}
+	}
+	return resolved;
+}
+
 /** Default workspace-write policy for a mission running in `workspace`. */
 export function workspacePolicy(workspace: string, extra: Partial<SandboxPolicy> = {}): SandboxPolicy {
 	return {
 		filesystem: "workspace_write",
 		network: "none",
-		writableRoots: [workspace, join(workspace, ".bedrock")].filter((path, index, all) => all.indexOf(path) === index),
+		writableRoots: [workspace, join(workspace, ".bedrock"), ...tempRoots()].filter(
+			(path, index, all) => all.indexOf(path) === index,
+		),
 		protectedPaths: [join(workspace, ".git"), join(workspace, ".bedrock", "gate")],
 		allowedHosts: [],
 		...extra,

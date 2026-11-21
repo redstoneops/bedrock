@@ -213,6 +213,11 @@ export async function runMission(options: MissionOptions): Promise<MissionResult
 		gateId: gate.id,
 		version: gate.version,
 		checks: gate.checks.length,
+		checkList: gate.checks.map((check) => ({
+			name: check.name,
+			command: check.visibility === "holdout" ? "(hidden)" : check.command,
+			holdout: check.visibility === "holdout",
+		})),
 		at: now(),
 	});
 	if (gate.checks.length === 0)
@@ -742,7 +747,7 @@ export async function runMission(options: MissionOptions): Promise<MissionResult
 }
 
 /** Maps worker events onto the protocol stream every surface understands. */
-function forwardWorkerEvent(
+export function forwardWorkerEvent(
 	event: WorkerEvent,
 	workerId: Id<"worker">,
 	args: Map<string, unknown>,

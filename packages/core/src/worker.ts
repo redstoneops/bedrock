@@ -146,6 +146,41 @@ export function workerSystemPrompt(options: {
 	return lines.join("\n");
 }
 
+/**
+ * Maps one pi agent event to a worker event, or undefined when it carries
+ * nothing a surface shows. Shared by mission workers and quick sessions.
+ */
+export function toWorkerEvent(event: AgentEvent): WorkerEvent | undefined {
+	if (event.type === "message_update") {
+		const delta = event.assistantMessageEvent;
+		if (delta.type === "text_start") return { type: "text", text: "", start: true };
+		if (delta.type === "text_delta") return { type: "text", text: delta.delta, start: false };
+		if (delta.type === "thinking_delta") return { type: "thinking", text: delta.delta };
+		return undefined;
+	}
+	if (event.type === "message_end") {
+		const message = event.message as AssistantMessage;
+		return message.role === "assistant" && message.stopReason === "error"
+			? { type: "error", message: message.errorMessage ?? "provider error" }
+			: undefined;
+	}
+	if (event.type === "tool_execution_start")
+		return { type: "tool_start", toolCallId: event.toolCallId, name: event.toolName, args: event.args };
+	if (event.type === "tool_execution_end") {
+		return {
+			type: "tool_end",
+			toolCallId: event.toolCallId,
+			name: event.toolName,
+			args: undefined,
+			ok: !event.isError,
+			durationMs: event.durationMs,
+			head: resultHead(event.result),
+			details: (event.result as AgentToolResult<unknown> | undefined)?.details,
+		};
+	}
+	return undefined;
+}
+
 function resultHead(result: unknown): string {
 	const record = result as AgentToolResult<unknown> | undefined;
 	const text = (record?.content ?? [])
@@ -261,45 +296,23 @@ export async function runWorker(options: RunWorkerOptions): Promise<WorkerOutcom
 		if (event.type === "turn_start") {
 			stats.turns += 1;
 			options.onEvent?.({ type: "turn", turn: stats.turns });
-		} else if (event.type === "message_update") {
-			const delta = event.assistantMessageEvent;
-			if (delta.type === "text_start") options.onEvent?.({ type: "text", text: "", start: true });
-			else if (delta.type === "text_delta") options.onEvent?.({ type: "text", text: delta.delta, start: false });
-			else if (delta.type === "thinking_delta") options.onEvent?.({ type: "thinking", text: delta.delta });
-		} else if (event.type === "message_end") {
-			const message = event.message as AssistantMessage;
-			if (message.role === "assistant" && message.stopReason === "error") {
-				options.onEvent?.({ type: "error", message: message.errorMessage ?? "provider error" });
-			}
-		} else if (event.type === "tool_execution_start") {
+			return;
+		}
+		if (event.type === "tool_execution_start") {
 			stats.toolCalls += 1;
 			const signature = `${event.toolName}:${JSON.stringify(event.args)}`;
 			const seen = signatures.get(signature) ?? 0;
 			if (seen > 0) repeated += 1;
 			signatures.set(signature, seen + 1);
 			stats.repeatedActionRatio = stats.toolCalls === 0 ? 0 : repeated / stats.toolCalls;
-			options.onEvent?.({
-				type: "tool_start",
-				toolCallId: event.toolCallId,
-				name: event.toolName,
-				args: event.args,
-			});
 		} else if (event.type === "tool_execution_end") {
 			if (event.isError) stats.failedToolCalls += 1;
 			// Progress is anything that changes or measures the tree, not only ledger facts.
 			else if (["edit", "write", "str_replace", "apply_patch", "checks"].includes(event.toolName))
 				lastFactTurn = stats.turns;
-			options.onEvent?.({
-				type: "tool_end",
-				toolCallId: event.toolCallId,
-				name: event.toolName,
-				args: undefined,
-				ok: !event.isError,
-				durationMs: event.durationMs,
-				head: resultHead(event.result),
-				details: (event.result as AgentToolResult<unknown> | undefined)?.details,
-			});
 		}
+		const mapped = toWorkerEvent(event);
+		if (mapped) options.onEvent?.(mapped);
 	});
 
 	const brief = [spec.brief, options.briefExtra].filter((part): part is string => Boolean(part)).join("\n\n");

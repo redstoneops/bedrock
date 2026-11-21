@@ -7,6 +7,7 @@ export * from "./controller.ts";
 export * from "./mission.ts";
 export * from "./prompts.ts";
 export * from "./proof.ts";
+export * from "./quick.ts";
 export * from "./reflect.ts";
 export * from "./scout.ts";
 export * from "./strategist.ts";

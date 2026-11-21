@@ -22,6 +22,7 @@ npx vitest run packages/core        # one package
 npx vitest run packages/core/test/budget-policy.test.ts   # one file
 npm run bedrock -- --help   # run the CLI from source (no build needed)
 npm run bedrock -- quick     # interactive quick mode
+BEDROCK_SCRIPT=script.json npm run bedrock    # drive the TUI with a scripted model (no keys)
 scripts/fetch-refs.sh       # clone/update reference repos into refs/ (gitignored)
 ```
 
@@ -34,8 +35,9 @@ and updating the lockfile in the same commit. Never edit `refs/` contents; never
 through the `bedrock-source` export condition (see [ADR-0003](docs/adr/0003-run-from-source.md)).
 `packages/protocol` is the shared vocabulary every package imports; it has no runtime dependencies.
 
-Read, in this order: `packages/protocol/src/` → `packages/core/src/mission-loop.ts` →
-`packages/gate/src/compiler.ts` → `packages/verify/src/stack.ts`. See the `repo-overview` skill.
+Read, in this order: `packages/protocol/src/` → `packages/core/src/mission.ts` →
+`packages/core/src/worker.ts` → `packages/gate/src/compiler.ts` → `packages/verify/src/stack.ts` →
+`packages/tui/src/app.ts`. See the `repo-overview` skill and `docs/loop.md`.
 
 ## How work lands here
 
@@ -89,6 +91,7 @@ Skills live in `.agents/skills/<name>/SKILL.md`. Load the one matching your task
 | `writing-a-verifier` | Verifier layers, selection, final state |
 | `tui-components` | Mission Control components on pi-tui |
 | `running-evals` | Lab runs, ablations, reading results |
+| `budget-policy` | Changing how missions spend compute |
 | `writing-adrs` | Recording a decision |
 
 If a skill is wrong, fix it in the same commit as the code that made it wrong.

@@ -79,6 +79,21 @@ faux.setResponses([fauxAssistantMessage("done"), fauxAssistantMessage([fauxToolC
 The same pattern proves prompt assembly: assert on what the faux provider received
 (`TranscriptContext`), not on network calls.
 
+## Running the real stack without keys
+
+`BEDROCK_SCRIPT=path/to/script.json` replaces every model with a scripted one (`packages/cli/src/scripted.ts`):
+
+```json
+{ "tokensPerSecond": 20, "steps": [
+  { "text": "Reading the code.", "tools": [{ "name": "read", "args": { "path": "src/a.ts" } }] },
+  { "tools": [{ "name": "finish", "args": { "summary": "done", "checks": [], "unverified": [] } }] }
+] }
+```
+
+`packages/cli/test/e2e.test.ts` drives the real binary this way through scout, gate, worktree,
+verification, apply and proof. Set `HOME` to a temp dir in such tests: worktrees go to
+`~/.bedrock/worktrees`.
+
 ## Tests that touch the filesystem or processes
 
 - Work in a temp dir: `mkdtempSync(join(tmpdir(), "bedrock-"))`; never write inside the repo.
@@ -90,7 +105,8 @@ The same pattern proves prompt assembly: assert on what the faux provider receiv
 
 ## Husky / commits
 
-`.husky/pre-commit` runs `npm run check && npm test`. In a linked git worktree, husky is not
+`.husky/pre-commit` runs `npm run check` (tests run before committing by hand and in CI; temp-repo tests
+contend with git's index lock inside a hook). In a linked git worktree, husky is not
 installed automatically; run `npm install` (or `npx husky`) inside the worktree once, or run the
 checks manually before committing.
 

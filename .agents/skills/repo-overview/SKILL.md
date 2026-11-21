@@ -24,39 +24,34 @@ If you need shared vocabulary, add it to `protocol` (types only, no I/O).
 
 ## Data flow of one mission
 
-1. `cli` resolves config (`~/.bedrock/config.yml` + `.bedrock/config.yml`) and starts a mission.
-2. **Scout** (`core/scout.ts`) snapshots the repo: VCS state, languages, build/test commands,
-   context files. Writes a `ScoutReport` to the ledger.
-3. **Gate compiler** (`gate/compiler.ts`) uses the scout report plus the goal to produce a `Gate`:
-   visible checks, holdout checks, invariants, rubric, integrity rules. Acceptance checks are
-   validated by running them against the pre-fix tree (`gate/validate.ts`).
-4. **Strategist** (`core/strategist.ts`) produces the strategy tree with distinct approaches.
-5. **Workers** (`core/worker.ts`) each run a pi `Agent` in their own git worktree
-   (`isolation/worktree.ts`) with `tools` + optionally the `kernel`. Every turn can be reviewed by
-   the **advisor** (`core/advisor.ts`). Tool calls and messages stream out as `BedrockEvent`s.
-6. **Verifier stack** (`verify/`) runs L0 static → L1 targeted → L2 full gate + holdout →
-   L3 rubric/SRC → L4 red team, each cheaper layer first. Results are evidence bound to a tree hash.
-7. **Budget controller** (`core/budget-policy.ts`) consumes `BudgetSignals` and returns a
-   `BudgetDecision` (continue / refine / branch / widen / escalate / prune / ask_human / stop).
-8. **Selection** (`verify/select.ts`) ranks passing candidates; **refine** (`core/refine.ts`)
-   distills failures for the next rollout; **reflect** (`memory/playbook.ts`) proposes guarded
-   playbook deltas.
-9. **Proof of work** (`core/proof.ts`) computes the final state in the harness and writes the report.
+1. `cli/src/main.ts` resolves config (`cli/src/config.ts`) and builds a runtime (`cli/src/runtime.ts`).
+   With a TTY it opens Mission Control (`tui/src/app.ts`); otherwise it prints prose or JSONL.
+2. **Scout** (`core/scout.ts`): VCS state, languages, build/test commands, context files, toolchain.
+3. **Snapshot** (`isolation/snapshot.ts`): the dirty working tree becomes a commit; workers branch from it.
+4. **Gate** (`gate/compiler.ts`, optional `gate/validate.ts`): checks, holdout, invariants, integrity.
+5. **Rounds** (`core/mission.ts`): the strategist (`core/strategist.ts`) picks distinct approaches; each
+   worker (`core/worker.ts`) runs a pi `Agent` in its own worktree (`isolation/worktree.ts`) with tools from
+   `tools/` plus `core/tools.ts` (`checks`, `python`), the advisor (`core/advisor.ts`) and compaction
+   (`core/compaction.ts`).
+6. **Verify** (`verify/stack.ts`) each candidate; **select** (`verify/selection.ts`); **apply** the winner.
+7. Between rounds the **budget policy** (`core/budget-policy.ts`) decides; refine briefs come from the
+   ledger (`ledger/ledger.ts`) and are written to the Chest (`memory/chest.ts`).
+8. **Reflect** (`core/reflect.ts` → `memory/playbook.ts`) and **prove** (`core/proof.ts`).
 
-Every step appends to the session event log (`context/event-log.ts`) and the ledger
-(`ledger/store.ts`). The TUI renders events; the daemon replays them after a crash.
+Every step emits a `BedrockEvent` (`protocol/events.ts`) into the session log (`context/event-log.ts`); the
+TUI's `MissionView` is a projection of the same stream. Live control goes through `core/controller.ts`.
 
 ## Start reading here
 
 | You want to... | Read |
 | --- | --- |
-| Understand the vocabulary | `packages/protocol/src/index.ts` and its modules |
-| Follow one mission end to end | `packages/core/src/mission.ts`, `mission-loop.ts` |
-| Understand "done" | `packages/gate/src/types.ts`, `gate.ts`, `docs/gate.md` |
+| Understand the vocabulary | `packages/protocol/src/` |
+| Follow one mission | `packages/core/src/mission.ts`, `docs/loop.md` |
+| Understand "done" | `packages/gate/src/compiler.ts`, `runner.ts`, `docs/gate.md` |
 | Understand verification | `packages/verify/src/stack.ts`, `docs/verification.md` |
 | Touch the TUI | `packages/tui/src/app.ts`, `docs/tui.md` |
-| Add a tool | `packages/tools/src/registry.ts`, skill `adding-a-tool` |
-| Run evals | `packages/lab/src/`, skill `running-evals` |
+| Add a tool | `packages/tools/src/index.ts`, skill `adding-a-tool` |
+| Run evals | `packages/lab/src/runner.ts`, skill `running-evals` |
 
 ## Naming
 

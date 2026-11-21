@@ -74,6 +74,8 @@ export type BedrockEvent =
 			gateId: Id<"gate">;
 			version: number;
 			checks: number;
+			/** Check names with their visibility, so surfaces can show pending rows before verification. */
+			checkList?: Array<{ name: string; command: string; holdout: boolean }>;
 			at: Timestamp;
 	  }
 	| { type: "strategy_tree"; missionId: Id<"mission">; tree: StrategyTree; at: Timestamp }

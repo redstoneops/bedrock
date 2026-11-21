@@ -120,6 +120,12 @@ export class MissionView {
 				break;
 			case "gate_compiled":
 				this.phase = "gate";
+				this.gate = (event.checkList ?? []).map((check) => ({
+					name: check.name,
+					status: "not_run",
+					holdout: check.holdout,
+				}));
+				this.holdoutHidden = !(event.checkList ?? []).some((check) => check.holdout);
 				break;
 			case "strategy_tree":
 				this.strategy = { rootId: event.tree.rootId, nodes: event.tree.nodes };
@@ -127,7 +133,7 @@ export class MissionView {
 			case "strategy_node":
 				this.strategy.nodes[event.node.id] = event.node;
 				break;
-			case "worker_spawned":
+			case "worker_spawned": {
 				this.workers.set(event.workerId, {
 					id: event.workerId,
 					status: "starting",
@@ -135,11 +141,13 @@ export class MissionView {
 					lastAction: "spawned",
 					costUsd: 0,
 				});
+				const node = this.strategy.nodes[event.spec.strategyId];
 				this.#push({
 					kind: "notice",
-					text: `worker ${short(event.workerId)} started on ${event.spec.strategyId ? short(event.spec.strategyId) : "the mission"}`,
+					text: `worker ${short(event.workerId)} started: ${node?.title ?? "the mission"}${event.spec.branch ? ` (${event.spec.branch})` : ""}`,
 				});
 				break;
+			}
 			case "worker_status": {
 				const worker = this.workers.get(event.workerId);
 				if (worker) worker.status = event.status;

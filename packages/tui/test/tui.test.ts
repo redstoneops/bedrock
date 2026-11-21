@@ -36,7 +36,18 @@ function populate(view: MissionView): MissionView {
 	const workerId = createId("worker");
 	const events: BedrockEvent[] = [
 		{ type: "mission_start", missionId, goal: "port the parser to Rust", workspace: "/w", at: "t" },
-		{ type: "gate_compiled", missionId, gateId: createId("gate"), version: 1, checks: 12, at: "t" },
+		{
+			type: "gate_compiled",
+			missionId,
+			gateId: createId("gate"),
+			version: 1,
+			checks: 2,
+			checkList: [
+				{ name: "build", command: "npm run build", holdout: false },
+				{ name: "holdout-1", command: "(hidden)", holdout: true },
+			],
+			at: "t",
+		},
 		{
 			type: "strategy_tree",
 			missionId,
@@ -273,5 +284,28 @@ describe("wrap", () => {
 	it("wraps on word boundaries and keeps explicit newlines", () => {
 		expect(wrap("one two three", 7)).toEqual(["one two", "three"]);
 		expect(wrap("a\nb", 10)).toEqual(["a", "b"]);
+	});
+});
+
+describe("pending gate rows", () => {
+	it("shows compiled checks as pending before verification", () => {
+		const view = new MissionView();
+		view.apply({
+			type: "gate_compiled",
+			missionId,
+			gateId: createId("gate"),
+			version: 1,
+			checks: 2,
+			checkList: [
+				{ name: "test", command: "npm test", holdout: false },
+				{ name: "h", command: "(hidden)", holdout: true },
+			],
+			at: "t",
+		});
+		const text = renderMission(view, 100, 20)
+			.map((line) => stripVTControlCharacters(line))
+			.join("\n");
+		expect(text).toContain("GATE 0/2");
+		expect(text).toContain("· test");
 	});
 });

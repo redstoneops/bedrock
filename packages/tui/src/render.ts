@@ -122,7 +122,10 @@ export function renderGate(view: MissionView, width: number): string[] {
 		else lines.push(`  ${paint("·", DIM)} ${label}`);
 	}
 	if (view.gate.length > 14) lines.push(paint(`  +${view.gate.length - 14} more`, DIM));
-	if (view.holdoutHidden && view.gate.length > 0) lines.push(paint("  holdout runs only at verification", DIM));
+	if (view.gate.some((row) => row.holdout && row.status === "not_run"))
+		lines.push(paint("  🔒 holdout runs only at verification", DIM));
+	else if (view.gate.length > 0 && !view.gate.some((row) => row.holdout))
+		lines.push(paint("  no holdout checks", DIM));
 	return lines.map((line) => fit(line, width));
 }
 

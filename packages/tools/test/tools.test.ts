@@ -294,7 +294,11 @@ describe("registry and helpers", () => {
 		const root = workspace();
 		const ctx = context(root);
 		const names = createTools(ctx).map((tool) => tool.name);
-		expect(names).toEqual(["read", "write", "edit", "grep", "find", "ls", "bash", "todo", "ask"]);
+		expect(names).toEqual(["read", "write", "edit", "artifact", "grep", "find", "ls", "bash", "todo", "ask"]);
+		expect(createTools(ctx, { edits: ["patch", "str_replace"] }).map((tool) => tool.name)).toEqual(
+			expect.arrayContaining(["apply_patch", "str_replace"]),
+		);
+		expect(createTools(ctx, { edits: ["patch"] }).map((tool) => tool.name)).not.toContain("edit");
 		expect(createTools(ctx, { exclude: ["bash", "ask"] }).map((tool) => tool.name)).not.toContain("bash");
 		expect(createTools(ctx).every((tool) => (tool.parameters as { type?: string }).type === "object")).toBe(true);
 	});

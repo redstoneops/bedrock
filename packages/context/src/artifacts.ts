@@ -6,7 +6,7 @@
 // turn.
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Id } from "@bedrock/protocol";
 
@@ -98,6 +98,20 @@ export class ArtifactStore {
 			}
 		}
 		return { id, path, bytes, mime, hash };
+	}
+
+	/** Looks an artifact up by the `art_…` id handed to models. */
+	getById(id: string): string | undefined {
+		const prefix = id.replace(/^art_/, "");
+		if (!/^[0-9a-f]{8,64}$/.test(prefix)) return undefined;
+		if (this.sink.kind === "memory") {
+			for (const [hash, content] of this.#memory) if (hash.startsWith(prefix)) return content;
+			return undefined;
+		}
+		const dir = join(this.sink.root, prefix.slice(0, 2));
+		if (!existsSync(dir)) return undefined;
+		const file = readdirSync(dir).find((name) => name.startsWith(prefix));
+		return file ? readFileSync(join(dir, file), "utf8") : undefined;
 	}
 
 	get(hash: string): string | undefined {

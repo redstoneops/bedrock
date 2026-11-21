@@ -11,7 +11,7 @@
 
 import type { Ai } from "@bedrock/ai";
 import type { ArtifactStore } from "@bedrock/context";
-import { runGate } from "@bedrock/gate";
+import { runGate, runGateAsync } from "@bedrock/gate";
 import type { CandidateView, Gate, GateResult, RubricVerdict, SelectionStrategy, Verifier } from "@bedrock/protocol";
 
 export interface VerifyContext {
@@ -21,6 +21,7 @@ export interface VerifyContext {
 	artifacts?: ArtifactStore;
 	ai?: Ai;
 	timeoutMs?: number;
+	signal?: AbortSignal;
 }
 
 /** L0: cheap checks that need no model and no test suite. */
@@ -34,13 +35,14 @@ export class StaticVerifier implements Verifier {
 
 	async verify(candidate: CandidateView, gate: Gate, context?: VerifyContext): Promise<GateResult> {
 		const workspace = context?.workspace ?? process.cwd();
-		const result = runGate({
+		const result = await runGateAsync({
 			gate: { ...gate, checks: gate.checks.filter((check) => check.kind === "lint" || check.kind === "typecheck") },
 			workspace,
 			includeHoldout: false,
 			baseCommit: context?.baseCommit,
 			artifacts: context?.artifacts,
 			defaultTimeoutMs: context?.timeoutMs ?? 120_000,
+			signal: context?.signal,
 		});
 		return { ...result, treeHash: result.treeHash || candidate.treeHash || "unknown" };
 	}
@@ -56,13 +58,14 @@ export class GateVerifier implements Verifier {
 	}
 
 	async verify(_candidate: CandidateView, gate: Gate, context?: VerifyContext): Promise<GateResult> {
-		return runGate({
+		return runGateAsync({
 			gate,
 			workspace: context?.workspace ?? process.cwd(),
 			includeHoldout: true,
 			baseCommit: context?.baseCommit,
 			artifacts: context?.artifacts,
 			defaultTimeoutMs: context?.timeoutMs ?? 300_000,
+			signal: context?.signal,
 		});
 	}
 }

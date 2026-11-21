@@ -12,6 +12,7 @@ import {
 	monitorIntegrity,
 	runCheck,
 	runGate,
+	runGateAsync,
 	treeHash,
 	validateAcceptanceChecks,
 } from "../src/index.ts";
@@ -246,5 +247,20 @@ describe("acceptance validation", () => {
 		expect(outcomes.find((outcome) => outcome.name === "vacuous")).toMatchObject({ valid: true });
 		expect(vacuous.visibility).toBe("holdout");
 		expect((real as { baseline?: { failsWithoutFix: boolean } }).baseline?.failsWithoutFix).toBe(true);
+	});
+});
+
+describe("runGateAsync", () => {
+	it("matches the sync runner's verdicts and can be interrupted", async () => {
+		const root = workspace();
+		const gate = compileGate(mission(root, ["true", "exit 2"]));
+		const result = await runGateAsync({ gate, workspace: root, includeHoldout: true });
+		expect(result.visible.map((run) => run.status)).toEqual(["passed", "failed"]);
+		expect(result.passRatio).toBe(0.5);
+		const controller = new AbortController();
+		const slow = compileGate(mission(root, ["sleep 10"]));
+		const pending = runGateAsync({ gate: slow, workspace: root, includeHoldout: false, signal: controller.signal });
+		setTimeout(() => controller.abort(), 100);
+		expect((await pending).visible[0].status).toBe("error");
 	});
 });

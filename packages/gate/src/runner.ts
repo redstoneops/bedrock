@@ -4,7 +4,7 @@
 // therefore always means "these checks passed on exactly this tree", which is the
 // property the whole product rests on.
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import type { ArtifactStore, TruncationOptions } from "@bedrock/context";
 import { truncateOutput } from "@bedrock/context";
@@ -125,6 +125,119 @@ export function runCheck(
 	};
 }
 
+/**
+ * Async `runCheck`: same verdict rules, but never blocks the event loop and can
+ * be cancelled, so a long suite keeps the TUI responsive and Esc works.
+ */
+export function runCheckAsync(
+	check: CommandCheck,
+	workspace: string,
+	options: {
+		timeoutMs?: number;
+		artifacts?: ArtifactStore;
+		truncation?: TruncationOptions;
+		signal?: AbortSignal;
+	} = {},
+): Promise<CheckRun> {
+	const startedAt = new Date().toISOString();
+	const started = performance.now();
+	const timeoutMs = check.timeoutMs ?? options.timeoutMs ?? 300_000;
+	return new Promise((resolve) => {
+		const child = spawn("bash", ["-lc", check.command], {
+			cwd: check.cwd ? `${workspace}/${check.cwd}` : workspace,
+			env: { ...process.env, ...check.env, CI: process.env.CI ?? "1" },
+			stdio: ["ignore", "pipe", "pipe"],
+			detached: process.platform !== "win32",
+		});
+		let output = "";
+		let killed: "timeout" | "abort" | undefined;
+		const kill = (reason: "timeout" | "abort") => {
+			killed = reason;
+			try {
+				if (child.pid && process.platform !== "win32") process.kill(-child.pid, "SIGKILL");
+				else child.kill("SIGKILL");
+			} catch {
+				child.kill("SIGKILL");
+			}
+		};
+		const timer = setTimeout(() => kill("timeout"), timeoutMs);
+		const onAbort = () => kill("abort");
+		options.signal?.addEventListener("abort", onAbort, { once: true });
+		const append = (chunk: Buffer) => {
+			if (output.length < 64 * 1024 * 1024) output += chunk.toString("utf8");
+		};
+		child.stdout.on("data", append);
+		child.stderr.on("data", append);
+		const finish = (code: number | null) => {
+			clearTimeout(timer);
+			options.signal?.removeEventListener("abort", onAbort);
+			const durationMs = Math.round(performance.now() - started);
+			const exitCode = killed === "timeout" ? 124 : killed === "abort" ? 130 : (code ?? 1);
+			const verdict = killed
+				? { ok: false, reason: killed === "timeout" ? `timed out after ${timeoutMs}ms` : "interrupted" }
+				: matchesExpectation(check, exitCode, output, "", durationMs);
+			const truncated = truncateOutput(output, options.truncation ?? { maxLines: 400, maxBytes: 32_000 });
+			const artifact = options.artifacts && truncated.truncated ? options.artifacts.put(output) : undefined;
+			resolve({
+				checkId: check.id,
+				name: check.name,
+				status: verdict.ok ? "passed" : killed ? "error" : "failed",
+				exitCode,
+				durationMs,
+				artifact: artifact?.id,
+				outputHead: truncated.head.split("\n").slice(0, 40).join("\n"),
+				outputTail: truncated.tail.split("\n").slice(-20).join("\n"),
+				truncated: truncated.truncated,
+				startedAt,
+				failureReason: verdict.reason,
+			});
+		};
+		child.on("close", finish);
+		child.on("error", () => finish(127));
+	});
+}
+
+/** Async `runGate`. Checks run sequentially: suites often share ports and caches. */
+export async function runGateAsync(
+	options: RunGateOptions & { signal?: AbortSignal; onCheck?: (run: CheckRun) => void },
+): Promise<GateResult> {
+	const startedAt: Timestamp = new Date().toISOString();
+	const hash = treeHash(options.workspace);
+	const all = options.gate.checks.filter((check) => (options.includeHoldout ? true : check.visibility === "visible"));
+	const selected = options.only
+		? all.filter((check) => options.only?.includes(check.id) || options.only?.includes(check.name))
+		: all;
+	const visible: CheckRun[] = [];
+	const holdout: CheckRun[] = [];
+	for (const check of selected) {
+		const run = await runCheckAsync(check, options.workspace, {
+			timeoutMs: options.defaultTimeoutMs,
+			artifacts: options.artifacts,
+			truncation: options.truncation,
+			signal: options.signal,
+		});
+		(check.visibility === "holdout" ? holdout : visible).push(run);
+		options.onCheck?.(run);
+	}
+	const invariantViolations = checkInvariants(options.gate, options.workspace, options.baseCommit);
+	const integrity = monitorIntegrity(options.gate, options.workspace, options.baseCommit);
+	const runs = [...visible, ...holdout];
+	const passed = runs.every((run) => run.status === "passed") && invariantViolations.length === 0;
+	return {
+		gateId: options.gate.id,
+		gateVersion: options.gate.version,
+		treeHash: hash,
+		startedAt,
+		finishedAt: new Date().toISOString(),
+		visible,
+		holdout,
+		invariantViolations,
+		integrity,
+		passed,
+		passRatio: runs.length === 0 ? 0 : runs.filter((run) => run.status === "passed").length / runs.length,
+	};
+}
+
 /** Files changed since the base commit, relative to the workspace. */
 export function changedFiles(workspace: string, baseCommit?: string): string[] {
 	if (!baseCommit) {
@@ -145,7 +258,13 @@ export function changedFiles(workspace: string, baseCommit?: string): string[] {
 	const files = new Set<string>();
 	for (const line of diff.stdout.split("\n")) if (line.trim().length > 0) files.add(line.trim());
 	for (const line of untracked.stdout.split("\n")) if (line.trim().length > 0) files.add(line.trim());
-	return [...files];
+	return [...files].filter((file) => !isDependencyPath(file));
+}
+
+/** Shared dependency directories (symlinked into worktrees) are never part of a candidate. */
+function isDependencyPath(file: string): boolean {
+	if (file === ".bedrock" || file.startsWith(".bedrock/")) return true;
+	return file.split("/").some((segment) => segment === "node_modules" || segment === ".venv" || segment === "venv");
 }
 
 function globToRegExp(glob: string): RegExp {

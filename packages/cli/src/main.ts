@@ -8,6 +8,15 @@ import { Ai } from "@bedrock/ai";
 import { MissionController, QuickSession, runMission, scout } from "@bedrock/core";
 import { recoverSessions } from "@bedrock/daemon";
 import { compileGate, describeResult, runGate } from "@bedrock/gate";
+import {
+	createMissionRunner,
+	listRuns,
+	loadSuite,
+	loadTerminalBenchTasks,
+	reportRun,
+	runSuite,
+	saveRun,
+} from "@bedrock/lab";
 import { defaultPlaybookPath, Playbook } from "@bedrock/memory";
 import type {
 	BedrockConfig,
@@ -36,6 +45,10 @@ Usage:
   bedrock models [query]                   list models from the pi catalog
   bedrock sessions                         list recorded sessions and which were interrupted
   bedrock proof [mission-id]               print the latest (or a given) proof of work
+  bedrock lab run [suite.json] [--attempts k] [--tags a,b]
+                                           run a benchmark suite with an independent holdout evaluator
+  bedrock lab runs                         list recorded lab runs
+  bedrock lab tb <tasks-dir>               list Terminal-Bench tasks as Bedrock tasks
   bedrock --version | --help
 
 Options:
@@ -84,6 +97,8 @@ function parseCli(): Cli {
 			advisor: { type: "boolean" },
 			"red-team": { type: "boolean" },
 			kernel: { type: "boolean" },
+			attempts: { type: "string" },
+			tags: { type: "string" },
 			tui: { type: "boolean" },
 			json: { type: "boolean" },
 			yes: { type: "boolean" },
@@ -206,6 +221,8 @@ async function main(): Promise<number> {
 			return sessionsMode(config);
 		case "proof":
 			return proofMode(cli, config);
+		case "lab":
+			return labMode(cli, config, workspace);
 		default:
 			process.stderr.write(`unknown command "${cli.command}"\n\n${HELP}\n`);
 			return 2;
@@ -541,6 +558,58 @@ function proofMode(cli: Cli, config: BedrockConfig): number {
 	}
 	process.stdout.write(readFileSync(join(missions, chosen, "proof.md"), "utf8"));
 	return 0;
+}
+
+async function labMode(cli: Cli, config: BedrockConfig, workspace: string): Promise<number> {
+	const [sub, target] = cli.positionals;
+	const runsDir = join(config.stateDir, "lab", "runs");
+	if (sub === "runs") {
+		const runs = listRuns(runsDir);
+		if (runs.length === 0) process.stdout.write("no lab runs yet\n");
+		for (const run of runs) process.stdout.write(`${run.runId}  ${run.finishedAt}\n${reportRun(run)}\n\n`);
+		return 0;
+	}
+	if (sub === "tb") {
+		if (!target) {
+			process.stderr.write("usage: bedrock lab tb <terminal-bench tasks dir>\n");
+			return 2;
+		}
+		const tasks = loadTerminalBenchTasks(target, { tags: str(cli.values.tags)?.split(",") });
+		for (const task of tasks) process.stdout.write(`${task.id.padEnd(40)} ${(task.tags ?? []).join(",")}\n`);
+		process.stdout.write(`${tasks.length} tasks (they run inside their Docker images; use --isolation container)\n`);
+		return 0;
+	}
+	if (sub !== "run") {
+		process.stderr.write("usage: bedrock lab run [suite.json] | bedrock lab runs | bedrock lab tb <dir>\n");
+		return 2;
+	}
+	if (!requireCredentials()) return 1;
+	const suitePath = target ?? join(workspace, "evals", "bedrock-hard", "suite.json");
+	if (!existsSync(suitePath)) {
+		process.stderr.write(`no suite at ${suitePath}\n`);
+		return 2;
+	}
+	const suite = loadSuite(suitePath);
+	const probe = createRuntime({ config, workspace, autonomous: true });
+	const models = probe.ai.models;
+	probe.close();
+	const run = await runSuite({
+		suite,
+		config,
+		attempts: number(cli.values.attempts) ?? 1,
+		tags: str(cli.values.tags)?.split(","),
+		runner: createMissionRunner({
+			makeAi: (taskConfig) => new Ai({ config: taskConfig, models }),
+			maxAttempts: number(cli.values["max-attempts"]) ?? 3,
+		}),
+		onAttempt: (attempt) =>
+			process.stdout.write(
+				`${attempt.taskId.padEnd(28)} ${attempt.finalState.padEnd(10)} holdout ${attempt.holdoutPassed ? "pass" : "FAIL"}  $${attempt.costUsd.toFixed(3)}${attempt.error ? `  error: ${attempt.error}` : ""}\n`,
+			),
+	});
+	const dir = saveRun(runsDir, run);
+	process.stdout.write(`\n${reportRun(run)}\nsaved: ${dir}\n`);
+	return run.metrics.falseCompletionRate === 0 ? 0 : 1;
 }
 
 main()

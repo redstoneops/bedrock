@@ -107,7 +107,7 @@ export function readTextFile(
 export async function runSandboxed(
 	ctx: ToolContext,
 	command: string,
-	options: { timeoutMs?: number; cwd?: string } = {},
+	options: { timeoutMs?: number; cwd?: string; signal?: AbortSignal; onOutput?: (chunk: string) => void } = {},
 ): Promise<
 	| { ok: true; outcome: ReturnType<Sandbox["run"]>; wrapped: WrappedCommand }
 	| { ok: false; error: string; decision: PermissionDecision }
@@ -120,7 +120,7 @@ export async function runSandboxed(
 		if (!approved) return { ok: false, error: `not approved: ${decision.reason}`, decision };
 	}
 	const wrapped = ctx.sandbox.wrap(command);
-	const outcome = ctx.sandbox.run(command, options);
+	const outcome = await ctx.sandbox.runAsync(command, options);
 	return { ok: true, outcome, wrapped };
 }
 

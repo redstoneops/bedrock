@@ -31,6 +31,7 @@ export function createTools(ctx: ToolContext, options: ToolRegistryOptions = {})
 }
 
 export { createBashTool } from "./bash.ts";
+export { describeToolCall, patchPaths, patchPathsFromApplyPatch } from "./describe.ts";
 export { createEditTool, createReadTool, createWriteTool, currentHeader, removeForTest } from "./files.ts";
 export {
 	applySection,

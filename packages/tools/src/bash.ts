@@ -32,6 +32,8 @@ export function createBashTool(ctx: ToolContext): AgentTool<typeof bashParameter
 		execute: async (
 			_toolCallId,
 			params: AgentToolParams<typeof bashParameters>,
+			signal,
+			onUpdate,
 		): Promise<AgentToolResult<JsonValue | undefined>> => {
 			let cwd = ctx.workspace;
 			if (params.cwd) {
@@ -39,7 +41,22 @@ export function createBashTool(ctx: ToolContext): AgentTool<typeof bashParameter
 				if (!resolved.ok) return failure(resolved.error);
 				cwd = resolved.absolute;
 			}
-			const outcome = await runSandboxed(ctx, params.command, { timeoutMs: params.timeoutMs, cwd });
+			let streamed = "";
+			let lastUpdate = 0;
+			const outcome = await runSandboxed(ctx, params.command, {
+				timeoutMs: params.timeoutMs,
+				cwd,
+				signal,
+				onOutput: (chunk) => {
+					streamed = (streamed + chunk).slice(-4000);
+					const now = Date.now();
+					// Throttle partial updates: a chatty build must not flood the event stream.
+					if (onUpdate && now - lastUpdate > 150) {
+						lastUpdate = now;
+						onUpdate({ content: [{ type: "text", text: streamed }], details: undefined });
+					}
+				},
+			});
 			if (!outcome.ok) return failure(outcome.error);
 			const result = outcome.outcome;
 			const combined = [result.stdout.trimEnd(), result.stderr.trimEnd()]

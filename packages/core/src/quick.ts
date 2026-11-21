@@ -8,7 +8,7 @@ import type { Ai } from "@bedrock/ai";
 import type { ArtifactStore } from "@bedrock/context";
 import { type BedrockEvent, createId, type Id } from "@bedrock/protocol";
 import type { Sandbox } from "@bedrock/sandbox";
-import { createTools, type ToolContext } from "@bedrock/tools";
+import { createTools, type EditTool, type ToolContext } from "@bedrock/tools";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { forwardWorkerEvent } from "./mission.ts";
 import { toWorkerEvent } from "./worker.ts";
@@ -29,6 +29,7 @@ export interface QuickSessionOptions {
 	ask?: ToolContext["ask"];
 	onPermission?: ToolContext["onPermission"];
 	systemPrompt?: string;
+	edits?: EditTool[];
 }
 
 /** A multi-turn quick-mode conversation. */
@@ -42,14 +43,17 @@ export class QuickSession {
 	constructor(options: QuickSessionOptions) {
 		this.#options = options;
 		const resolved = options.ai.resolve("worker");
-		const tools = createTools({
-			workspace: options.workspace,
-			sandbox: options.sandbox,
-			artifacts: options.artifacts,
-			todos: [],
-			ask: options.ask,
-			onPermission: options.onPermission,
-		});
+		const tools = createTools(
+			{
+				workspace: options.workspace,
+				sandbox: options.sandbox,
+				artifacts: options.artifacts,
+				todos: [],
+				ask: options.ask,
+				onPermission: options.onPermission,
+			},
+			{ edits: options.edits },
+		);
 		this.agent = new Agent({
 			initialState: {
 				systemPrompt: options.systemPrompt ?? QUICK_SYSTEM_PROMPT,

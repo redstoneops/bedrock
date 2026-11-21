@@ -290,6 +290,7 @@ async function executeMission(cli: Cli, config: BedrockConfig, workspace: string
 			playbook,
 			kernel: config.loop.kernel,
 			isolation: config.isolation === "worktree" ? "worktree" : "inplace",
+			edits: [config.edits.default],
 		});
 	} finally {
 		runtime.close();
@@ -414,6 +415,7 @@ async function quickMode(cli: Cli, config: BedrockConfig, workspace: string): Pr
 				workspace,
 				sandbox: runtime.sandbox,
 				artifacts: runtime.artifacts,
+				edits: [config.edits.default],
 				onEvent: emit,
 			});
 			await session.send(prompt);
@@ -443,6 +445,7 @@ async function quickMode(cli: Cli, config: BedrockConfig, workspace: string): Pr
 			workspace,
 			sandbox: runtime.sandbox,
 			artifacts: runtime.artifacts,
+			edits: [config.edits.default],
 			onEvent: (event) => {
 				app.setCost(runtime.ai.cost.usd, config.budget.usd);
 				app.apply(event);

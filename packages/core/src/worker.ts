@@ -13,6 +13,7 @@ import {
 	createFinishTool,
 	createLedgerTool,
 	createTools,
+	type EditTool,
 	type FinishReport,
 	type LedgerSink,
 	type ToolContext,
@@ -93,6 +94,8 @@ export interface RunWorkerOptions {
 	adviseEvery?: number;
 	/** Token budget for the transcript; older tool outputs are masked beyond it. */
 	contextBudgetTokens?: number;
+	/** Edit tools to expose (default hashline). */
+	edits?: EditTool[];
 }
 
 export interface WorkerOutcome {
@@ -227,7 +230,7 @@ export async function runWorker(options: RunWorkerOptions): Promise<WorkerOutcom
 
 	let report: FinishReport | undefined;
 	const tools: AgentTool[] = [
-		...createTools(toolContext),
+		...createTools(toolContext, { edits: options.edits }),
 		createLedgerTool({
 			missionId: mission.id,
 			workerId: options.workerId,

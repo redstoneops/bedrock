@@ -14,8 +14,21 @@ import type {
 } from "@bedrock/protocol";
 import { classifyCommand } from "./classify.ts";
 
-const WRITE_TOOLS = new Set(["write", "edit", "apply_patch", "ast_edit", "todo"]);
-const READ_TOOLS = new Set(["read", "grep", "find", "ls", "glob", "lsp", "history", "ledger", "web_search", "fetch"]);
+const WRITE_TOOLS = new Set(["write", "edit", "str_replace", "apply_patch", "ast_edit", "todo"]);
+const READ_TOOLS = new Set([
+	"read",
+	"grep",
+	"find",
+	"ls",
+	"glob",
+	"lsp",
+	"history",
+	"ledger",
+	"web_search",
+	"fetch",
+	"artifact",
+	"checks",
+]);
 
 /** Files never readable or writable by a worker, regardless of preset. */
 export const SECRET_PATTERNS = [

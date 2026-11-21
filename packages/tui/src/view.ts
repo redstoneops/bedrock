@@ -85,12 +85,24 @@ export class MissionView {
 	interrupted = false;
 	/** Which extra pane is open: ledger, agents or none. */
 	expanded: "none" | "ledger" | "agents" = "none";
+	/** `mission` shows the strategy and gate panes; `chat` is the quick-mode transcript. */
+	layout: "mission" | "chat" = "mission";
+	/** A one-line status under the header, e.g. "waiting for your mission". */
+	status = "";
+	/** True while a mission or quick turn is running. */
+	busy = false;
+	/** A pending question from the agent; the next submit answers it. */
+	question?: string;
+	/** Recent ledger entries, newest last, for the ledger pane. */
+	recentLedger: string[] = [];
 	/** Rolling count of streamed deltas for the current message. */
 	#streamingWorker?: Id<"worker">;
 
 	apply(event: BedrockEvent): this {
 		switch (event.type) {
 			case "mission_start":
+				this.busy = true;
+				this.proof = undefined;
 				this.missionId = event.missionId;
 				this.goal = event.goal;
 				this.workspace = event.workspace;
@@ -103,6 +115,8 @@ export class MissionView {
 			case "mission_finish":
 				this.proof = event.proof;
 				this.phase = "done";
+				this.busy = false;
+				this.status = `${event.finalState.toUpperCase()} · type a new mission, or /quit`;
 				break;
 			case "gate_compiled":
 				this.phase = "gate";
@@ -136,6 +150,14 @@ export class MissionView {
 				if (worker) worker.turns = event.turn;
 				break;
 			}
+			case "scout_report":
+				this.status = `scouted: ${
+					event.report.languages
+						.map((language) => language.name)
+						.slice(0, 3)
+						.join(", ") || "no source files"
+				}${event.report.commands.test ? ` · tests: ${event.report.commands.test}` : ""}`;
+				break;
 			case "assistant_delta": {
 				if (!event.append || this.#streamingWorker !== event.workerId) {
 					this.conversation.push({ kind: "text", workerId: event.workerId, text: event.text });
@@ -146,16 +168,32 @@ export class MissionView {
 				}
 				break;
 			}
-			case "tool_call":
-				this.#push({ kind: "tool", workerId: event.card.workerId, text: event.card.label, card: event.card });
+			case "tool_call": {
+				// A card is emitted when the call starts and again when it ends; update it in place.
+				const existing = this.conversation.findLast(
+					(line) => line.kind === "tool" && line.card?.toolCallId === event.card.toolCallId,
+				);
+				if (existing) {
+					existing.card = event.card;
+					existing.text = event.card.label;
+				} else
+					this.#push({ kind: "tool", workerId: event.card.workerId, text: event.card.label, card: event.card });
+				this.#streamingWorker = undefined;
 				break;
+			}
 			case "advisor_note":
 				this.#push({ kind: "advisor", workerId: event.note.workerId, text: event.note.text, tag: event.note.tag });
 				break;
-			case "ledger_entry":
+			case "ledger_entry": {
 				this.ledger.total += 1;
 				this.ledger.byKind[event.entry.kind] += 1;
+				if (event.entry.kind === "risk") this.ledger.risks += 1;
+				if (event.entry.kind === "hypothesis" && event.entry.status === "open") this.ledger.openHypotheses += 1;
+				const entry = event.entry as { kind: string; statement?: string; question?: string; summary?: string };
+				this.recentLedger.push(`${entry.kind}: ${entry.statement ?? entry.question ?? entry.summary ?? ""}`);
+				if (this.recentLedger.length > 50) this.recentLedger.shift();
 				break;
+			}
 			case "ledger_summary":
 				this.ledger = event.summary;
 				break;
@@ -206,6 +244,43 @@ export class MissionView {
 	#push(line: ConversationLine): void {
 		this.conversation.push(line);
 		if (this.conversation.length > 400) this.conversation.splice(0, this.conversation.length - 400);
+	}
+
+	/** Clears per-mission state so the same view can show the next mission. */
+	reset(): void {
+		this.strategy = { rootId: "" as Id<"strategy">, nodes: {} };
+		this.workers.clear();
+		this.gate = [];
+		this.gatePassRatio = 0;
+		this.holdoutHidden = true;
+		this.proof = undefined;
+		this.budgetAction = undefined;
+		this.recentLedger = [];
+		this.ledger = {
+			...this.ledger,
+			total: 0,
+			byKind: {
+				fact: 0,
+				hypothesis: 0,
+				decision: 0,
+				evidence: 0,
+				risk: 0,
+				question: 0,
+				artifact: 0,
+				checkpoint: 0,
+				candidate: 0,
+			},
+			openHypotheses: 0,
+			risks: 0,
+			unsupportedRatio: 0,
+		};
+		this.phase = "bootstrap";
+		this.costUsd = 0;
+	}
+
+	/** Adds a local line (slash command output, prompts) to the transcript. */
+	note(text: string, kind: ConversationLine["kind"] = "notice"): void {
+		this.#push({ kind, text });
 	}
 
 	/** Sends a steering message. Returns the text, or undefined when empty. */

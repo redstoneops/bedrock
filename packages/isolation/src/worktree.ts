@@ -86,9 +86,9 @@ export function rewind(worktree: Worktree, commit: string): void {
  * Removes the worktree and its branch. `force` is required to discard
  * uncommitted changes; callers checkpoint before removing.
  */
-export function removeWorktree(worktree: Worktree, force = false): void {
+export function removeWorktree(worktree: Worktree, force = false, keepBranch = false): void {
 	git(worktree.repo, ["worktree", "remove", ...(force ? ["--force"] : []), worktree.path]);
-	git(worktree.repo, ["branch", "-D", worktree.branch]);
+	if (!keepBranch) git(worktree.repo, ["branch", "-D", worktree.branch]);
 	if (existsSync(worktree.path)) rmSync(worktree.path, { recursive: true, force: true });
 }
 

@@ -54,8 +54,18 @@ them.
 npm install
 npm run check     # biome + tsc
 npm test          # vitest
-npm run bedrock -- --help
+export ANTHROPIC_API_KEY=...        # or any provider pi-ai supports
+npm run bedrock                     # Mission Control: type a goal
+npm run bedrock -- run --goal "make the failing tests pass" --gate "npm test"
+npm run bedrock -- quick "rename foo to bar in src/"
+npm run bedrock -- lab run          # smoke suite with an independent holdout evaluator
 ```
+
+What happens on `run`: the repo is scouted, a gate is compiled from its own test/build/lint commands plus
+your `--gate`, one worker attacks it in an isolated git worktree, an independent verifier runs the gate (and
+any holdout), and only a verified result is applied to your checkout. If the first attempt fails, the budget
+policy refines, branches to a different approach, or widens to parallel workers with distinct strategies.
+Every mission ends with `.bedrock/missions/<id>/proof.md`.
 
 Requirements: Node >= 22.19 (developed on Node 26), npm.
 
@@ -82,7 +92,7 @@ Requirements: Node >= 22.19 (developed on Node 26), npm.
 
 ## Docs
 
-- [Architecture](docs/architecture.md) · [The loop](docs/loop.md) · [Gates](docs/gate.md) · [Ledger](docs/ledger.md) · [TUI](docs/tui.md) · [Lab](docs/lab.md)
+- [Architecture](docs/architecture.md) · [The loop](docs/loop.md) · [Gates](docs/gate.md) · [Verification](docs/verification.md) · [Context & ledger](docs/context.md) · [TUI](docs/tui.md) · [Lab](docs/lab.md)
 - [Configuration](docs/configuration.md) · [Integrity & security](docs/security.md) · [Reference repos](docs/refs.md) · [Progress](docs/progress.md)
 - [ADRs](docs/adr/) · [Product requirements](PRD.md)
 - Building agents should start at [AGENTS.md](AGENTS.md) and `.agents/skills/`.

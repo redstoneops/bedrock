@@ -14,19 +14,34 @@ agent trusts this file.
 
 | Milestone | State | Notes |
 | --- | --- | --- |
-| M0 repo foundation | in progress | Monorepo, tooling, CI, protocol contract, skills, ADRs |
-| M1 quick agent | planned | `bedrock quick` on pi-agent-core |
-| M2 durable core | planned | Event log, ledger, daemon, recovery, checkpoints |
-| M3 gate + verify | planned | Compiler, runner, holdout, L0–L2, computed final state |
-| M4 Mission Control | planned | Strategy tree, gate, ledger, agent hub, diff, steering |
-| M5 parallel + selection | planned | Worktrees, strategist, budget controller, RTV, PDR, advisor |
-| M6 kernel | planned | Persistent kernel, context as a variable, spawn() |
-| M7 compounding | planned | Playbook, guarded refinement, red team |
-| M8 lab + evolve | planned | Terminal-Bench adapter, dashboard, evolve loop |
+| M0 repo foundation | verified | Monorepo, tooling, CI, protocol contract, skills, ADRs |
+| M1 quick agent | tested | `bedrock quick` chat TUI on pi-agent-core; not yet run against a real provider |
+| M2 durable core | partial | Event log, ledger, Chest, recovery listing (`bedrock sessions`); missions do not yet run inside the daemon or resume automatically |
+| M3 gate + verify | tested | Compiler, async runner, holdout, acceptance validation, diff monitor, L0/L2/L3/L4, computed final state |
+| M4 Mission Control | verified | pi-tui app checked live under tmux with a scripted model; no transcript scroll-back or diff view yet |
+| M5 parallel + selection | tested | Snapshot worktrees, strategist, budget policy that widens, tournament selection, refine briefs, advisor; no lab numbers yet |
+| M6 kernel | tested | Persistent Python kernel as the `python` tool; spawn() requests are queued but not yet executed as sub-agents |
+| M7 compounding | partial | Playbook with recall and add-only reflection, guarded harness state; no repeated-run measurement yet |
+| M8 lab + evolve | partial | Independent holdout evaluator, smoke suite, Terminal-Bench loader, evolve loop; Terminal-Bench execution needs a container runner |
 
 ## Session log
 
 Newest first. One entry per working session: what changed, what is verified, what is not.
+
+### 2026-11-21 — parallel missions, Mission Control, lab
+
+- Mission loop rewritten around rounds of 1..N workers in worktrees branched from a snapshot of the dirty
+  working tree; verified winners are applied as diffs (ADR-0005). Strategist, advisor, observation-masking
+  compaction, mid-run stall/loop stops, `checks` and `python` tools, evidence for every shell call, proof
+  files, reflection.
+- Seatbelt now reads anywhere and writes only to the workspace and temp roots (ADR-0006); commands and gate
+  checks run without blocking and stop on Esc.
+- Mission Control on pi-tui (ADR-0007): `bedrock`, `bedrock run` and `bedrock quick` open it on a terminal.
+- Edit formats: hashline (default), str_replace, Codex apply_patch; artifact reader.
+- Lab: missions judged by holdouts they never see (ADR-0008); smoke suite; Terminal-Bench loader.
+- Verified: `npm run check` clean, 213 tests green, including e2e runs of the real binary with a scripted
+  model and a live tmux session showing goal → gate → worktree → verified → applied → proof.
+- Not verified: any run against a real provider; any benchmark number; Linux sandboxing.
 
 ### 2026-11-19 — foundation
 

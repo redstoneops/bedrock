@@ -6,9 +6,8 @@ Status: v0.1, consolidated working spec. Audience: the coding agents that build 
 > A terminal coding agent harness built for extremely hard, long-horizon tasks, where being right
 > matters more than being fast.
 
-This document merges two input drafts. Their originals are preserved verbatim:
-[draft A](docs/prd/draft-a.md) (research and loop design) and [draft B](docs/prd/draft-b.md)
-(components, tiers, integrity). Where they disagreed, this document decides:
+This document merges two input drafts: draft A (research and loop design) and draft B (components,
+tiers, integrity), both supplied in the initial build request. Where they disagreed, this document decides:
 [ADR-0004](docs/adr/0004-one-spec-functional-names.md) explains every resolution.
 
 ---
@@ -332,7 +331,6 @@ pleasant.
 ├── docs/{architecture,loop,gate,ledger,verification,context,tools,security,isolation,
 │         kernel,memory,daemon,tui,lab,configuration,refs,progress}.md
 ├── docs/adr/NNNN-*.md
-├── docs/prd/{draft-a,draft-b}.md
 ├── scripts/fetch-refs.sh  scripts/build.mjs
 ├── refs/                      gitignored reference repos
 ├── packages/

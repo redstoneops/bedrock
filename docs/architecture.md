@@ -92,17 +92,14 @@ harness, not requested from the model.
 
 ## Subsystem docs
 
-- [The loop](loop.md) — phases, budget decisions, refinement
-- [Gates](gate.md) — compiling "done", holdouts, acceptance validation
-- [Ledger](ledger.md) — records, evidence, queries
-- [Verification](verification.md) — L0–L4, selection, final state
-- [Context](context.md) — event log, artifacts, compaction, prompt assembly
-- [Tools](tools.md) — hashline edits, shell, truncation
-- [Sandbox](security.md) — permissions, OS sandboxes, redaction, audit, integrity
-- [Isolation](isolation.md) — worktrees, copies, containers, checkpoints
-- [Kernel](kernel.md) — why a REPL, what is importable, spawn()
-- [Memory](memory.md) — Chest files, playbook, guarded refinement
-- [Daemon](daemon.md) — ownership, RPC, recovery
-- [TUI](tui.md) — Mission Control layout and components
-- [Lab](lab.md) — benchmarks, ablations, meta-harness
-- [Configuration](configuration.md) — every config key
+- [The loop](loop.md) — rounds, workers, budget decisions, steering, final state
+- [Gates](gate.md) — compiling "done", holdouts, acceptance validation, diff monitor
+- [Verification](verification.md) — L0–L4, selection, applying the winner
+- [Tools](tools.md) — hashline, str_replace, apply_patch, checks, artifacts, shell
+- [Isolation](isolation.md) — snapshots, worktrees, shared dependencies, apply
+- [Context, ledger, memory, kernel, daemon](context.md)
+- [Integrity and security](security.md) — permissions, Seatbelt, redaction, audit
+- [Mission Control](tui.md) — layout, keys, rendering rules, testing
+- [Lab](lab.md) — suites, the independent evaluator, Terminal-Bench, evolve
+- [Configuration](configuration.md) — every config key and flag
+- [pi integration](pi-integration.md) — the pi APIs Bedrock depends on

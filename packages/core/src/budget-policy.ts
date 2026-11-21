@@ -68,17 +68,28 @@ export function decide(
 			question: "Should I widen the sandbox, change the approach, or stop?",
 		};
 	}
+	if (signals.repeatedActionRatio >= tuning.loopThreshold) {
+		return {
+			action: "branch",
+			reason:
+				"the same action keeps repeating; a different approach in a different workspace is cheaper than another retry",
+		};
+	}
 	if (signals.turnsSinceNewFact >= tuning.stallTurns) {
 		return {
 			action: "refine",
 			reason: `${signals.turnsSinceNewFact} turns without a new ledger fact; restart from a distilled brief instead of extending a stalled context`,
 		};
 	}
-	if (signals.repeatedActionRatio >= tuning.loopThreshold) {
+	if (
+		signals.attempts === 1 &&
+		signals.candidateCount <= 1 &&
+		Math.min(limits.maxParallelWorkers, tuning.maxParallelWorkers) > 1
+	) {
 		return {
-			action: "branch",
-			reason:
-				"the same action keeps repeating; a different approach in a different workspace is cheaper than another retry",
+			action: "widen",
+			reason: "the first full attempt failed; diversity is now cheaper than persistence",
+			parallelism: 2,
 		};
 	}
 	if (signals.turns >= tuning.turnCap) {

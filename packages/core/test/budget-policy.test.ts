@@ -67,9 +67,9 @@ describe("decide", () => {
 	});
 
 	it("widens at the turn cap, then refines once candidates exist", () => {
-		const widen = decide(snapshot({ turns: 120, candidateCount: 0 }));
+		const widen = decide(snapshot({ turns: 120, candidateCount: 0, attempts: 2, candidateDiversity: 1 }));
 		expect(widen.action).toBe("widen");
-		expect(widen.parallelism).toBe(2);
+		expect(widen.parallelism).toBe(3);
 		const refine = decide(snapshot({ turns: 120, candidateCount: 4, attempts: 4 }));
 		expect(refine.action).toBe("refine");
 	});
@@ -78,8 +78,14 @@ describe("decide", () => {
 		expect(decide(snapshot({ gatePassRatio: 0.4, attempts: 2, candidateDiversity: 0.1 })).action).toBe("widen");
 	});
 
+	it("widens after the first failed attempt when parallel workers are allowed", () => {
+		const decision = decide(snapshot({ gatePassRatio: 0.5, attempts: 1, candidateCount: 1 }));
+		expect(decision.action).toBe("widen");
+		expect(decision.parallelism).toBe(2);
+	});
+
 	it("continues when there is no reason to change course", () => {
-		expect(decide(snapshot({ gatePassRatio: 0.5, attempts: 1 })).action).toBe("continue");
+		expect(decide(snapshot({ gatePassRatio: 0.5, attempts: 1 }, { maxParallelWorkers: 1 })).action).toBe("continue");
 	});
 });
 

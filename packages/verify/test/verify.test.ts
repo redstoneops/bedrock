@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Ai } from "@bedrock/ai";
-import { compileGate, runGate } from "@bedrock/gate";
+import { compileGate } from "@bedrock/gate";
 import {
 	type CandidateView,
 	createId,

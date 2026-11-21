@@ -7,7 +7,7 @@ import { parseArgs } from "node:util";
 import { Ai } from "@bedrock/ai";
 import { runMission, scout } from "@bedrock/core";
 import { compileGate, describeResult, runGate } from "@bedrock/gate";
-import { createId, type Mission, type Role, shortId } from "@bedrock/protocol";
+import { type Mission, type Role, shortId } from "@bedrock/protocol";
 import { createFinishTool, createTools, type FinishReport } from "@bedrock/tools";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import { Agent } from "@earendil-works/pi-agent-core";

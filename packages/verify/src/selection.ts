@@ -22,7 +22,7 @@ export class TournamentSelection implements SelectionStrategy {
 		this.#ai = ai;
 	}
 
-	async select(candidates: CandidateView[], gate: Gate): Promise<SelectionResult> {
+	async select(candidates: CandidateView[], _gate: Gate): Promise<SelectionResult> {
 		const eligible = candidates.filter((candidate) => candidate.gate.passed && candidate.gate.integrity.clean);
 		if (eligible.length === 0) return { rationale: "no candidate passed the gate", ranking: [] };
 		if (eligible.length === 1)

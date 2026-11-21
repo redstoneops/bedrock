@@ -12,7 +12,7 @@
 import type { Ai } from "@bedrock/ai";
 import type { ArtifactStore } from "@bedrock/context";
 import { runGate, runGateAsync } from "@bedrock/gate";
-import type { CandidateView, Gate, GateResult, RubricVerdict, SelectionStrategy, Verifier } from "@bedrock/protocol";
+import type { CandidateView, Gate, GateResult, RubricVerdict, Verifier } from "@bedrock/protocol";
 
 export interface VerifyContext {
 	/** Tree the candidate lives in. */

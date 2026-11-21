@@ -3,7 +3,6 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { createBashTool } from "./bash.ts";
 import { createEditTool, createReadTool, createWriteTool } from "./files.ts";
-import { createFinishTool, createLedgerTool, type FinishReport, type LedgerSink } from "./ledger-tool.ts";
 import { createFindTool, createGrepTool, createListTool } from "./search.ts";
 import { createAskTool, createTodoTool } from "./todo.ts";
 import type { ToolContext } from "./types.ts";

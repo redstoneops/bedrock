@@ -1,7 +1,10 @@
 # Configuration
 
 Precedence: built-in defaults (`packages/protocol/src/roles.ts#defaultConfig`) < `~/.bedrock/config.yml` <
-`.bedrock/config.yml` < command-line flags. Unknown keys produce a warning. Loader:
+saved `/model` worker preference < `.bedrock/config.yml` < command-line flags. Choosing a model
+in the TUI changes the current session immediately; the saved preference in `~/.bedrock/settings.json`
+is subject to project config and flags on the next launch. `/model auto` clears it.
+Unknown config keys produce a warning. Loader:
 `packages/cli/src/config.ts`.
 
 ```yaml
@@ -52,11 +55,23 @@ Keys and tokens live in `~/.bedrock/auth.json` (owner-only, not encrypted). Keep
 outside the project. Only run trusted code when shell or verification commands run without OS
 isolation. See [ADR-0009](adr/0009-local-provider-credentials.md).
 
+## User skills
+
+`bedrock skills add <path>` or `/skills add <path>` copies a Markdown file (or a directory's
+`SKILL.md`) into `~/.bedrock/skills/<name>/SKILL.md`. Optional YAML frontmatter supplies `name`
+and `description`. The name must be lowercase kebab-case; files are limited to 24 KiB. Installation
+neither copies companion scripts nor executes anything. Inspect a skill before adding it.
+
+Skills are inactive by default. Use `/skill` to select one for the current TUI session, or pass up
+to three `--skill <name>` flags to `run` or `quick`. Selected skill text is sent with the next model
+session or mission as guidance; it does not change tools, permissions or verification. See
+[ADR-0010](adr/0010-opt-in-local-skills.md).
+
 ## Environment
 
 | Variable | Effect |
 | --- | --- |
 | provider keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) | credentials, read by pi-ai |
-| `BEDROCK_HOME` | overrides the user authentication directory (default `~/.bedrock`) |
+| `BEDROCK_HOME` | overrides the directory for user config, authentication, skills and preferences (default `~/.bedrock`) |
 | `BEDROCK_SCRIPT=file.json` | replace every model with a scripted one (demos and tests only) |
 | `PYTHON` | interpreter for the kernel (default `python3`) |

@@ -64,6 +64,8 @@ export class QuickSession {
 			streamFn: options.ai.models.streamSimple.bind(options.ai.models),
 		});
 		this.agent.subscribe((event) => {
+			if (event.type === "message_end" && event.message.role === "assistant")
+				options.ai.cost.add("worker", event.message.usage);
 			const mapped = toWorkerEvent(event);
 			if (!mapped) return;
 			if (mapped.type === "tool_start") this.#args.set(mapped.toolCallId, mapped.args);

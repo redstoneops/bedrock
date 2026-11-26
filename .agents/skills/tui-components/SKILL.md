@@ -13,6 +13,10 @@ Read `docs/tui.md`. Three layers, keep them separate:
 3. **App** (`app.ts`): keys, slash commands, Editor wiring. Global keys go through `#globalKey` using
    `matchesKey(data, "ctrl+x")`.
 
+Slash discovery lives in `commands.ts`; the `picker.ts` dropdown keeps keyboard input separate
+from the Editor. CLI-specific handlers live under `packages/cli/src/tui-*.ts`. Keep login secrets
+in `askSecret`, never in editor history or transcript lines.
+
 ## Test at three levels
 
 - String tests in `test/tui.test.ts`: build a view, call `renderMission`, strip ANSI with

@@ -51,7 +51,7 @@ export class MissionView {
 	budgetUsd?: number;
 	phaseStart = Date.now();
 	startedAt = Date.now();
-	strategy: { rootId: Id<"strategy">; nodes: Record<string, StrategyNode> } = {
+	strategy: { rootId: Id<"strategy">; nodes: Record<string, StrategyNode>; rationale?: string } = {
 		rootId: "" as Id<"strategy">,
 		nodes: {},
 	};
@@ -89,6 +89,7 @@ export class MissionView {
 	layout: "mission" | "chat" = "mission";
 	/** A one-line status under the header, e.g. "waiting for your mission". */
 	status = "";
+	panel?: { title: string; lines: string[]; offset: number };
 	/** True while a mission or quick turn is running. */
 	busy = false;
 	/** A pending question from the agent; the next submit answers it. */
@@ -128,7 +129,11 @@ export class MissionView {
 				this.holdoutHidden = !(event.checkList ?? []).some((check) => check.holdout);
 				break;
 			case "strategy_tree":
-				this.strategy = { rootId: event.tree.rootId, nodes: event.tree.nodes };
+				this.strategy = {
+					rootId: event.tree.rootId,
+					nodes: { ...event.tree.nodes },
+					rationale: event.tree.rationale,
+				};
 				break;
 			case "strategy_node":
 				this.strategy.nodes[event.node.id] = event.node;
@@ -256,6 +261,7 @@ export class MissionView {
 
 	/** Clears per-mission state so the same view can show the next mission. */
 	reset(): void {
+		this.panel = undefined;
 		this.strategy = { rootId: "" as Id<"strategy">, nodes: {} };
 		this.workers.clear();
 		this.gate = [];

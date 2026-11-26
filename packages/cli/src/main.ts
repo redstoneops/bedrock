@@ -5,7 +5,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { Ai, configuredProviders } from "@bedrock/ai";
-import { MissionController, QuickSession, runMission, scout } from "@bedrock/core";
+import { MissionController, QUICK_SYSTEM_PROMPT, QuickSession, runMission, scout } from "@bedrock/core";
 import { recoverSessions } from "@bedrock/daemon";
 import { compileGate, describeResult, runGate } from "@bedrock/gate";
 import {
@@ -30,8 +30,19 @@ import { shortId } from "@bedrock/protocol";
 import { MissionApp } from "@bedrock/tui";
 import { applyOverrides, loadConfig } from "./config.ts";
 import { showProviders, signIn, signOut, terminalAsker } from "./login.ts";
-import { createRuntime, isInteractive, prepareAi, providerModels, type Runtime, readLine } from "./runtime.ts";
+import {
+	assertExternalAuth,
+	createRuntime,
+	isInteractive,
+	prepareAi,
+	providerModels,
+	type Runtime,
+	readLine,
+} from "./runtime.ts";
 import { tuiAccount } from "./tui-account.ts";
+import { missionCommand } from "./tui-mission.ts";
+import { tuiSkills } from "./tui-skills.ts";
+import { addSkill, listSkills, skillContext } from "./user-skills.ts";
 
 const VERSION = "0.1.0";
 
@@ -47,6 +58,7 @@ Usage:
   bedrock providers [query]                list providers and authentication methods
   bedrock login [provider] [oauth|api-key]  sign in via OAuth or save an API key
   bedrock logout <provider>                remove saved credentials
+  bedrock skills [list|add <path>]         manage local Markdown skills
   bedrock sessions                         list recorded sessions and which were interrupted
   bedrock proof [mission-id]               print the latest (or a given) proof of work
   bedrock lab run [suite.json] [--attempts k] [--tags a,b]
@@ -59,6 +71,7 @@ Options:
   --goal <text>        the mission goal (run)
   --gate <cmd>         a gate command; repeatable, always included, never weakened
   --model <ref>        model for the worker role (provider/model); --role targets another role
+  --skill <name>       activate an installed skill (run or quick; repeat up to three)
   --max-usd <n>        budget in dollars
   --max-attempts <n>   total workers across all rounds (default 3)
   --parallel <n>       maximum parallel workers per round (default from config, 4)
@@ -91,6 +104,7 @@ function parseCli(): Cli {
 			goal: { type: "string" },
 			gate: { type: "string", multiple: true },
 			model: { type: "string" },
+			skill: { type: "string", multiple: true },
 			role: { type: "string" },
 			"max-usd": { type: "string" },
 			"max-attempts": { type: "string" },
@@ -230,11 +244,24 @@ async function main(): Promise<number> {
 					"login needs an interactive terminal; for CI, set the provider's API-key environment variable",
 				);
 			const [provider, method] = cli.positionals;
+			assertExternalAuth(workspace);
 			return (await signIn(providerModels(), terminalAsker(), provider, method)) ? 0 : 1;
 		}
 		case "logout":
 			await signOut(providerModels(), cli.positionals[0], terminalAsker().say);
 			return 0;
+		case "skills": {
+			const [action, path] = cli.positionals;
+			if (action === "add" && path) {
+				const skill = addSkill(path, workspace);
+				process.stdout.write(`Installed ${skill.name} at ${skill.path}\n`);
+			} else if ((!action || action === "list") && !path) {
+				const skills = listSkills();
+				for (const { name, description } of skills) process.stdout.write(`${name}\t${description}\n`);
+				if (!skills.length) process.stdout.write("No skills installed. Use bedrock skills add <path>.\n");
+			} else throw new Error("usage: bedrock skills [list|add <path>]");
+			return 0;
+		}
 		case "sessions":
 			return sessionsMode(config);
 		case "proof":
@@ -276,6 +303,21 @@ interface MissionHooks {
 	approveGate?: Parameters<typeof runMission>[0]["approveGate"];
 	/** Called with the running cost before each event is emitted. */
 	onCost?: (usd: number) => void;
+	workerGuidance?: string;
+}
+
+function workerSelection(cli: Cli, config: BedrockConfig, workspace: string) {
+	return {
+		current: () => config.roles.roles.worker?.model,
+		select: (model?: string) => {
+			const configured = () =>
+				applyOverrides(loadConfig(workspace, { ignoreSavedModel: true }).config, {
+					model: str(cli.values.model),
+					role: str(cli.values.role) as Role | undefined,
+				}).roles.roles.worker?.model;
+			config.roles.roles.worker = { ...config.roles.roles.worker, model: model ?? configured() };
+		},
+	};
 }
 
 /** Runs one mission with the configured harness features. */
@@ -312,6 +354,7 @@ async function executeMission(cli: Cli, config: BedrockConfig, workspace: string
 			maxParallel: config.loop.maxParallelWorkers,
 			turnCap: number(cli.values.turns) ?? config.loop.workerTurnCap,
 			modelPlanning: !runtime.scripted,
+			workerGuidance: hooks.workerGuidance,
 			advisor: config.loop.advisor && !runtime.scripted,
 			redTeam: config.loop.redTeam && !runtime.scripted,
 			reflect: config.memory.playbook && !runtime.scripted,
@@ -340,6 +383,7 @@ async function missionMode(
 			const result = await executeMission(cli, config, workspace, goal, {
 				emit,
 				controller,
+				workerGuidance: skillContext(list(cli.values.skill) ?? []),
 				approveGate: async (gate) => {
 					if (cli.values.yes || !isInteractive()) return { ...gate, approved: true, approvedBy: "policy" };
 					process.stdout.write(
@@ -390,14 +434,12 @@ async function missionMode(
 		},
 		onCommand: (command, args) => {
 			if (account.command(command, args)) return true;
-			if (command === "proof") {
-				app.note(lastProof ? `proof of work: ${lastProof}` : "no mission has finished yet");
-				return true;
-			}
-			return false;
+			if (skills.command(command, args)) return true;
+			return missionCommand(app, command, args, { workspace, proof: lastProof, start: (text) => void start(text) });
 		},
 	});
-	const account = tuiAccount(app, models);
+	const account = tuiAccount(app, models, workerSelection(cli, config, workspace));
+	const skills = tuiSkills(app, workspace, list(cli.values.skill) ?? []);
 	const start = async (missionGoal: string) => {
 		controller = new MissionController();
 		app.setBusy(true, `working on: ${missionGoal}`);
@@ -405,6 +447,7 @@ async function missionMode(
 		try {
 			const result = await executeMission(cli, config, workspace, missionGoal, {
 				controller,
+				workerGuidance: skills.context(),
 				onCost: (usd) => app.setCost(usd, config.budget.usd),
 				emit: (event) => app.apply(event),
 				ask: (question, options) => app.ask(question, options),
@@ -453,6 +496,7 @@ async function quickMode(cli: Cli, config: BedrockConfig, workspace: string): Pr
 				artifacts: runtime.artifacts,
 				edits: [config.edits.default],
 				onEvent: emit,
+				systemPrompt: quickPrompt(skillContext(list(cli.values.skill) ?? [])),
 			});
 			await session.send(prompt);
 			process.stdout.write("\n");
@@ -463,6 +507,8 @@ async function quickMode(cli: Cli, config: BedrockConfig, workspace: string): Pr
 			finished = resolve;
 		});
 		let session: QuickSession | undefined;
+		let lastGuidance = "";
+		let turnGeneration = 0;
 		const app: MissionApp = new MissionApp({
 			layout: "chat",
 			onSubmit: (text) => {
@@ -470,25 +516,32 @@ async function quickMode(cli: Cli, config: BedrockConfig, workspace: string): Pr
 			},
 			onInterrupt: () => {
 				account.cancel();
+				turnGeneration += 1;
 				session?.abort();
 			},
 			onQuit: () => {
 				account.cancel();
+				turnGeneration += 1;
 				session?.abort();
 				finished();
 			},
-			onCommand: (command, args) => account.command(command, args),
+			onCommand: (command, args) =>
+				account.command(command, args) ||
+				skills.command(command, args) ||
+				missionCommand(app, command, args, { workspace }),
 		});
-		const account = tuiAccount(app, providerModels());
-		const newSession = () =>
+		const account = tuiAccount(app, providerModels(), workerSelection(cli, config, workspace));
+		const skills = tuiSkills(app, workspace, list(cli.values.skill) ?? []);
+		const newSession = (guidance: string) =>
 			new QuickSession({
 				ai: runtime.ai,
 				workspace,
 				sandbox: runtime.sandbox,
 				artifacts: runtime.artifacts,
 				edits: [config.edits.default],
+				systemPrompt: quickPrompt(guidance),
 				onEvent: (event) => {
-					app.setCost(runtime.ai.cost.usd, config.budget.usd);
+					app.setCost(runtime.ai.cost.usd);
 					app.apply(event);
 				},
 				ask: (question, options) => app.ask(question, options),
@@ -506,19 +559,27 @@ async function quickMode(cli: Cli, config: BedrockConfig, workspace: string): Pr
 				return;
 			}
 			app.setBusy(true, "thinking…");
+			const generation = ++turnGeneration;
 			try {
 				await prepareAi(runtime.ai, runtime.scripted);
+				if (generation !== turnGeneration) return;
 				const model = runtime.ai.resolve("worker").model;
+				const guidance = skills.context();
 				const previous = session?.agent.state.model;
 				if (previous && (previous.provider !== model.provider || previous.id !== model.id)) {
 					app.note(`Starting a fresh chat for ${model.provider}/${model.id}; previous messages won't be sent.`);
 					session = undefined;
+				} else if (session && guidance !== lastGuidance) {
+					app.note("Starting a fresh chat to apply the changed skill selection.");
+					session = undefined;
 				}
-				session ??= newSession();
+				session ??= newSession(guidance);
+				lastGuidance = guidance;
 				await session.send(text);
 			} catch (error) {
 				app.note((error as Error).message);
 			} finally {
+				app.setCost(runtime.ai.cost.usd);
 				app.setBusy(false, "ready · /help");
 			}
 		};
@@ -532,6 +593,10 @@ async function quickMode(cli: Cli, config: BedrockConfig, workspace: string): Pr
 	} finally {
 		runtime.close();
 	}
+}
+
+function quickPrompt(guidance: string): string {
+	return guidance ? `${QUICK_SYSTEM_PROMPT}\n\n${guidance}` : QUICK_SYSTEM_PROMPT;
 }
 
 async function gateMode(cli: Cli, config: BedrockConfig, workspace: string): Promise<number> {
@@ -651,7 +716,7 @@ async function labMode(cli: Cli, config: BedrockConfig, workspace: string): Prom
 		tags: str(cli.values.tags)?.split(","),
 		runner: createMissionRunner({
 			makeAi: (taskConfig) => {
-				const ai = new Ai({ config: taskConfig, models });
+				const ai = new Ai({ config: scripted ? { ...taskConfig, roles: probe.config.roles } : taskConfig, models });
 				if (available) ai.setAvailableProviders(available);
 				return ai;
 			},

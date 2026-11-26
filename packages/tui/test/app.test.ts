@@ -171,7 +171,7 @@ describe("MissionApp on a virtual terminal", () => {
 		typeLine(terminal, "yes");
 		await expect(answer).resolves.toBe("yes");
 		typeLine(terminal, "/help");
-		expect(instance.view.conversation.some((line) => line.text.startsWith("/agents"))).toBe(true);
+		expect(instance.view.panel?.lines.some((line) => line.startsWith("/agents"))).toBe(true);
 		typeLine(terminal, "/agents");
 		expect(instance.view.expanded).toBe("agents");
 		typeLine(terminal, "/nope");
@@ -207,6 +207,35 @@ describe("MissionApp on a virtual terminal", () => {
 		cancel.abort();
 		await expect(next).resolves.toBeUndefined();
 		expect(instance.view.question).toBeUndefined();
+		instance.stop();
+	});
+
+	it("opens the command picker and runs the selected slash command", async () => {
+		const { app: instance, terminal } = app();
+		terminal.type("\x10");
+		for (const char of "cost") terminal.type(char);
+		flush(instance);
+		expect(terminal.transcript()).toContain("/cost");
+		terminal.type("\r");
+		await Promise.resolve();
+		expect(instance.view.panel?.title).toBe("COST ESTIMATE");
+		instance.stop();
+	});
+
+	it("supports keyboard navigation in a dropdown without passing input to the editor", async () => {
+		const submitted: string[] = [];
+		const { app: instance, terminal } = app({ onSubmit: (text) => submitted.push(text) });
+		const selection = instance.choose("Pick a provider", [
+			{ value: "anthropic", label: "Anthropic" },
+			{ value: "openai", label: "OpenAI", description: "ChatGPT" },
+		]);
+		flush(instance);
+		expect(terminal.transcript()).toContain("Pick a provider");
+		terminal.type("\x1b[B");
+		terminal.type("\r");
+		await expect(selection).resolves.toBe("openai");
+		typeLine(terminal, "fix the test");
+		expect(submitted).toEqual(["fix the test"]);
 		instance.stop();
 	});
 });

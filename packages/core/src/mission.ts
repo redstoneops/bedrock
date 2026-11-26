@@ -103,6 +103,8 @@ export interface MissionOptions {
 	maxParallel?: number;
 	/** Ask the strategist model for distinct approaches instead of fixed stances. */
 	modelPlanning?: boolean;
+	/** Explicit user-supplied guidance, separate from gate and verification rules. */
+	workerGuidance?: string;
 	/** Run the advisor model every few turns. */
 	advisor?: boolean;
 	/** Run the L4 red team (and pass diffs to L3) during verification. */
@@ -409,6 +411,7 @@ export async function runMission(options: MissionOptions): Promise<MissionResult
 					briefExtra: [
 						refine ? refineBriefText(refine) : "",
 						contextFiles ? `## Repository instructions\n${contextFiles}` : "",
+						options.workerGuidance ?? "",
 					]
 						.filter((part) => part.length > 0)
 						.join("\n\n"),

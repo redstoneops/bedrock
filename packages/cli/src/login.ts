@@ -15,6 +15,11 @@ import { deviceId } from "./device-id.ts";
 export interface Asker {
 	ask(question: string, signal?: AbortSignal): Promise<string | undefined>;
 	askSecret(question: string, signal?: AbortSignal): Promise<string | undefined>;
+	select?(
+		title: string,
+		items: { value: string; label: string; description?: string }[],
+		signal?: AbortSignal,
+	): Promise<string | undefined>;
 	say(text: string): void;
 }
 
@@ -42,7 +47,17 @@ export function interactionFrom(asker: Asker, signal?: AbortSignal): AuthInterac
 			let answer: string | undefined;
 			if (prompt.type === "secret" || prompt.type === "manual_code")
 				answer = await asker.askSecret(prompt.message, promptSignal);
-			else if (prompt.type === "select") {
+			else if (prompt.type === "select" && asker.select) {
+				answer = await asker.select(
+					prompt.message,
+					prompt.options.map(({ id, label, description }) => ({
+						value: id,
+						label,
+						description,
+					})),
+					promptSignal,
+				);
+			} else if (prompt.type === "select") {
 				for (const [index, option] of prompt.options.entries()) {
 					asker.say(`  ${index + 1}. ${option.label}${option.description ? ` — ${option.description}` : ""}`);
 				}
@@ -159,8 +174,30 @@ export async function signIn(
 	signal?: AbortSignal,
 ): Promise<string | undefined> {
 	if (!providerId) {
-		asker.say("Popular providers: anthropic, openai, deepseek, google, openrouter, github-copilot");
-		providerId = (await asker.ask("Provider ID (see /providers or bedrock providers)", signal))?.trim();
+		if (asker.select) {
+			const providers = await listProviders(models);
+			providerId = await asker.select(
+				"Sign in · choose a provider",
+				providers
+					.filter((provider) => provider.apiKey || provider.oauth)
+					.map((provider) => ({
+						value: provider.id,
+						label: provider.id,
+						description: [
+							provider.name,
+							provider.oauth && "OAuth",
+							provider.apiKey && "API key",
+							provider.configured && "configured",
+						]
+							.filter(Boolean)
+							.join(" · "),
+					})),
+				signal,
+			);
+		} else {
+			asker.say("Popular providers: anthropic, openai, deepseek, google, openrouter, github-copilot");
+			providerId = (await asker.ask("Provider ID (see /providers or bedrock providers)", signal))?.trim();
+		}
 		if (!providerId) return undefined;
 	}
 	const provider = models.getProvider(providerId);
@@ -168,10 +205,22 @@ export async function signIn(
 	const apiKey = provider.auth.apiKey;
 	const oauth = provider.auth.oauth;
 	if (!method && oauth && apiKey?.login) {
-		asker.say(`oauth: ${oauth.loginLabel ?? oauth.name} · api-key: ${apiKey.name}`);
-		const answer = await asker.ask("Method [Enter for OAuth, or type api-key]", signal);
-		if (answer === undefined) return undefined;
-		method = answer.trim() || "oauth";
+		if (asker.select) {
+			method = await asker.select(
+				`${provider.name} · sign-in method`,
+				[
+					{ value: "oauth", label: oauth.loginLabel ?? oauth.name, description: "OAuth" },
+					{ value: "api-key", label: apiKey.name, description: "API key" },
+				],
+				signal,
+			);
+			if (!method) return undefined;
+		} else {
+			asker.say(`oauth: ${oauth.loginLabel ?? oauth.name} · api-key: ${apiKey.name}`);
+			const answer = await asker.ask("Method [Enter for OAuth, or type api-key]", signal);
+			if (answer === undefined) return undefined;
+			method = answer.trim() || "oauth";
+		}
 	}
 	const selected = method ?? (oauth ? "oauth" : apiKey?.login ? "api-key" : undefined);
 	if (!selected) throw new Error(`${provider.name} uses ambient credentials; check the provider's setup instructions`);

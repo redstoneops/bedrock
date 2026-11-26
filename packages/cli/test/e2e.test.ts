@@ -43,7 +43,14 @@ function run(repo: string, home: string, scriptPath: string, args: string[]) {
 		cwd: repo,
 		encoding: "utf8",
 		timeout: 120_000,
-		env: { ...process.env, HOME: home, BEDROCK_SCRIPT: scriptPath, ANTHROPIC_API_KEY: "", OPENAI_API_KEY: "" },
+		env: {
+			...process.env,
+			HOME: home,
+			BEDROCK_HOME: join(home, ".bedrock"),
+			BEDROCK_SCRIPT: scriptPath,
+			ANTHROPIC_API_KEY: "",
+			OPENAI_API_KEY: "",
+		},
 	});
 }
 

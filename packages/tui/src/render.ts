@@ -283,7 +283,20 @@ export function renderMission(view: MissionView, width: number, height: number, 
 	const chrome = 3 + (withInput ? 1 : 0);
 	const bodyHeight = Math.max(3, height - chrome);
 	const body: string[] = [];
-	if (view.proof && view.layout === "mission") {
+	if (view.panel) {
+		const { title, lines, offset } = view.panel;
+		const pageSize = bodyHeight - 2;
+		const from = Math.max(0, Math.min(offset, lines.length - pageSize));
+		const page = lines.slice(from, from + pageSize);
+		body.push(paint(title, BOLD), ...page);
+		while (body.length < bodyHeight - 1) body.push("");
+		body.push(
+			paint(
+				`${page.length ? `${from + 1}–${from + page.length}/${lines.length}` : "0 entries"} · ↑/↓ PgUp/PgDn · Esc closes`,
+				DIM,
+			),
+		);
+	} else if (view.proof && view.layout === "mission") {
 		const proof = renderProof(view, width);
 		const conversation = renderConversation(view, width, Math.max(0, bodyHeight - proof.length - 1));
 		body.push(

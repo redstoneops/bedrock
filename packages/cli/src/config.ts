@@ -5,8 +5,8 @@
 // silently disable a guard.
 
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { defaultAuthPath } from "@bedrock/ai";
 import {
 	type BedrockConfig,
 	type BudgetLimits,
@@ -16,6 +16,7 @@ import {
 	type RolesConfig,
 } from "@bedrock/protocol";
 import { parse as parseYaml } from "yaml";
+import { savedModel } from "./settings.ts";
 
 export interface LoadedConfig {
 	config: BedrockConfig;
@@ -48,12 +49,14 @@ const KNOWN_KEYS = new Set([
 ]);
 
 /** Loads and merges the user and project config. Never throws on a missing file. */
-export function loadConfig(cwd: string): LoadedConfig {
+export function loadConfig(cwd: string, options: { ignoreSavedModel?: boolean } = {}): LoadedConfig {
 	const config = defaultConfig();
 	const sources: string[] = ["defaults"];
 	const warnings: string[] = [];
-	const paths = [join(homedir(), ".bedrock", "config.yml"), join(cwd, ".bedrock", "config.yml")];
-	for (const path of paths) {
+	const preference = options.ignoreSavedModel ? undefined : savedModel();
+	const paths = [join(dirname(defaultAuthPath()), "config.yml"), join(cwd, ".bedrock", "config.yml")];
+	for (const [index, path] of paths.entries()) {
+		if (index === 1 && preference) config.roles.roles.worker = { ...config.roles.roles.worker, model: preference };
 		const loaded = readYaml(path);
 		if (!loaded) continue;
 		if (loaded.error) {

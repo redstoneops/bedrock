@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyOverrides, loadConfig } from "../src/config.ts";
 
 const dirs: string[] = [];
@@ -10,7 +10,11 @@ function temp(): string {
 	dirs.push(dir);
 	return dir;
 }
+beforeEach(() => {
+	vi.stubEnv("BEDROCK_HOME", temp());
+});
 afterEach(() => {
+	vi.unstubAllEnvs();
 	for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 

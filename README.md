@@ -52,14 +52,20 @@ them.
 
 ```sh
 npm install
-npm run check     # biome + tsc
-npm test          # vitest
-export ANTHROPIC_API_KEY=...        # or any provider pi-ai supports
-npm run bedrock                     # Mission Control: type a goal
+npm run bedrock                     # Mission Control: Ctrl+P opens the command picker
 npm run bedrock -- run --goal "make the failing tests pass" --gate "npm test"
 npm run bedrock -- quick "rename foo to bar in src/"
 npm run bedrock -- lab run          # smoke suite with an independent holdout evaluator
 ```
+
+On first launch, use `/login` to pick a provider and sign in. Select a configured model with
+`/model`. `/goal <task>` starts a verified mission; `/plan <task>` previews the local workflow
+without calling a model. For non-interactive runs, use a stored login or the provider's API-key
+environment variable. For another repository, run `node /path/to/bedrock/packages/cli/bin/bedrock.js`
+from that repository's root.
+
+Install a local `SKILL.md` with `npm run bedrock -- skills add ./path/to/skill`. Pick it with
+`/skill` or pass `--skill <name>` to `run` or `quick`. Installing a skill does not activate it.
 
 What happens on `run`: the repo is scouted, a gate is compiled from its own test/build/lint commands plus
 your `--gate`, one worker attacks it in an isolated git worktree, an independent verifier runs the gate (and

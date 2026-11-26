@@ -31,3 +31,22 @@ it("signs in with the real DeepSeek key prompt, reloads auth and logs out withou
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+it("offers both ChatGPT subscription and API-key methods after choosing OpenAI", async () => {
+	const seen: string[][] = [];
+	const result = await signIn(builtinModels(), {
+		ask: async () => undefined,
+		askSecret: async () => {
+			throw new Error("must stop before the provider flow");
+		},
+		say: () => {},
+		select: async (_, items) => {
+			seen.push(items.map((item) => item.value));
+			return seen.length === 1 ? "openai" : undefined;
+		},
+	});
+	expect(result).toBeUndefined();
+	expect(seen[0]).toContain("anthropic");
+	expect(seen[0]).toContain("deepseek");
+	expect(seen[1]).toEqual(["oauth", "api-key"]);
+});

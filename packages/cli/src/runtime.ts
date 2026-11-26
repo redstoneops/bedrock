@@ -44,7 +44,8 @@ export async function prepareAi(ai: Ai, scripted?: string): Promise<void> {
 	ai.resolve("worker");
 }
 
-function assertExternalAuth(workspace: string, authPath: string): void {
+/** Prevents credential files from entering a workspace snapshot or bind mount. */
+export function assertExternalAuth(workspace: string, authPath = defaultAuthPath()): void {
 	const canonical = (path: string): string => {
 		if (existsSync(path)) return realpathSync(path);
 		const parent = dirname(path);
@@ -90,11 +91,12 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 	});
 	const models = options.models ?? providerModels();
 	const scriptPath = process.env.BEDROCK_SCRIPT;
-	if (scriptPath) installScript(models, options.config, loadScript(scriptPath));
-	const ai = new Ai({ config: options.config, models });
+	const config = scriptPath ? structuredClone(options.config) : options.config;
+	if (scriptPath) installScript(models, config, loadScript(scriptPath));
+	const ai = new Ai({ config, models });
 	excludeStateDir(options.workspace, stateDir);
 	return {
-		config: options.config,
+		config,
 		ai,
 		ledger,
 		artifacts,

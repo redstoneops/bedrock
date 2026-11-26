@@ -3,7 +3,15 @@
 import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
-import { Ai, configuredProviders, defaultAuthPath, FileCredentialStore } from "@bedrock/ai";
+import {
+	Ai,
+	configuredProviders,
+	defaultAuthPath,
+	enableModelDiscovery,
+	FileCredentialStore,
+	hasUnknownPricing,
+	refreshModelCatalog,
+} from "@bedrock/ai";
 import { ArtifactStore, EventLog } from "@bedrock/context";
 import { Ledger } from "@bedrock/ledger";
 import { type BedrockConfig, createId, type Id } from "@bedrock/protocol";
@@ -35,13 +43,22 @@ export interface RuntimeOptions {
 }
 
 export function providerModels() {
-	return builtinModels({ credentials: new FileCredentialStore() });
+	const models = builtinModels({ credentials: new FileCredentialStore() });
+	enableModelDiscovery(models);
+	return models;
 }
 
 /** Resolve provider availability before the first model request, not when opening the UI. */
-export async function prepareAi(ai: Ai, scripted?: string): Promise<void> {
-	if (!scripted) ai.setAvailableProviders(await configuredProviders(ai.models));
-	ai.resolve("worker");
+export async function prepareAi(ai: Ai, scripted?: string, note?: (text: string) => void): Promise<void> {
+	if (!scripted) {
+		await refreshModelCatalog(ai.models, { note });
+		ai.setAvailableProviders(await configuredProviders(ai.models));
+	}
+	const { model } = ai.resolve("worker");
+	if (hasUnknownPricing(model))
+		note?.(
+			`${model.provider}/${model.id}: pricing metadata is unavailable. The dollar estimate and budget cannot account for these calls.`,
+		);
 }
 
 /** Prevents credential files from entering a workspace snapshot or bind mount. */

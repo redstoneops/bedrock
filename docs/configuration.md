@@ -41,6 +41,14 @@ Roles resolve to models through pi-ai's catalog. A stale model id degrades to th
 to any available model; an empty catalog is an error. `requireDifferentFamily` drops same-provider
 fallbacks for that role.
 
+`bedrock models`, `/model`, and session startup refresh configured catalogs from the provider.
+Live discovery covers OpenAI (API key or ChatGPT sign-in), OpenAI Codex (subscription),
+Anthropic (API key), DeepSeek, Gemini, and providers with a native pi-ai refresh hook. Other
+providers and failed requests fall back to the bundled catalog. New IDs can be selected before
+the bundled catalog is updated. When a provider omits pricing, Bedrock marks it unknown:
+dollar estimates and limits cannot account for those calls. See
+[ADR-0012](adr/0012-live-model-catalog.md).
+
 `--max-attempts` (default 3) is the total number of workers across all rounds.
 
 ## Provider authentication

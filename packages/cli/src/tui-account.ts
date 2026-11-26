@@ -1,4 +1,10 @@
-import { configuredProviders, FileCredentialStore, parseModelRef } from "@bedrock/ai";
+import {
+	configuredProviders,
+	FileCredentialStore,
+	hasUnknownPricing,
+	parseModelRef,
+	refreshModelCatalog,
+} from "@bedrock/ai";
 import type { MissionApp } from "@bedrock/tui";
 import type { MutableModels } from "@earendil-works/pi-ai";
 import { type Asker, showProviders, signIn, signOut } from "./login.ts";
@@ -61,7 +67,9 @@ export function tuiAccount(
 				} else {
 					const signal = controller.signal;
 					let selected: string | undefined = args;
+					const discovery = { signal, note: asker.say };
 					if (args !== "auto" && !args.includes("/")) {
+						await refreshModelCatalog(models, { ...discovery, providers: provider ? [provider] : undefined });
 						const ids = provider ? [provider] : await configuredProviders(models);
 						const available = (await Promise.all(ids.map((id) => models.getAvailable(id, { signal })))).flat();
 						if (!available.length)
@@ -73,7 +81,7 @@ export function tuiAccount(
 								...available.map((model) => ({
 									value: `${model.provider}/${model.id}`,
 									label: `${model.provider}/${model.id}`,
-									description: model.name,
+									description: hasUnknownPricing(model) ? `${model.name} · pricing unknown` : model.name,
 								})),
 							],
 							signal,
@@ -86,6 +94,7 @@ export function tuiAccount(
 						app.note("Cleared the saved worker model; using configured or available defaults.");
 					} else {
 						const { provider: providerId, id } = parseModelRef(selected);
+						if (args.includes("/")) await refreshModelCatalog(models, { ...discovery, providers: [providerId] });
 						if (!models.getModel(providerId, id))
 							throw new Error("Model not in the catalog. Use /model to browse.");
 						if (!(await models.getAvailable(providerId, { signal })).some((model) => model.id === id))

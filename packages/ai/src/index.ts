@@ -3,3 +3,4 @@
 export * from "./ai.ts";
 export * from "./auth.ts";
 export * from "./credentials.ts";
+export * from "./discovery.ts";

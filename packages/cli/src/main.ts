@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { Ai, configuredProviders } from "@bedrock/ai";
+import { Ai, configuredProviders, hasUnknownPricing, refreshModelCatalog } from "@bedrock/ai";
 import {
 	MissionController,
 	type MissionOptions,
@@ -357,7 +357,15 @@ async function executeMission(cli: Cli, config: BedrockConfig, workspace: string
 		});
 	const playbook = config.memory.playbook ? new Playbook({ path: defaultPlaybookPath(config.stateDir) }) : undefined;
 	try {
-		await prepareAi(runtime.ai, runtime.scripted);
+		await prepareAi(runtime.ai, runtime.scripted, (text) =>
+			hooks.emit({
+				type: "notice",
+				missionId: runtime.missionId,
+				level: "warning",
+				text,
+				at: new Date().toISOString(),
+			}),
+		);
 		return await runMission({
 			mission: newMission(runtime, config, workspace, goal, list(cli.values.gate)),
 			ai: runtime.ai,
@@ -510,7 +518,7 @@ async function quickMode(cli: Cli, config: BedrockConfig, workspace: string): Pr
 				return 2;
 			}
 			const emit = cli.values.json ? jsonEmitter() : proseEmitter();
-			await prepareAi(runtime.ai, runtime.scripted);
+			await prepareAi(runtime.ai, runtime.scripted, (text) => process.stderr.write(`${text}\n`));
 			const session = new QuickSession({
 				ai: runtime.ai,
 				workspace,
@@ -582,7 +590,7 @@ async function quickMode(cli: Cli, config: BedrockConfig, workspace: string): Pr
 			app.setBusy(true, "thinking…");
 			const generation = ++turnGeneration;
 			try {
-				await prepareAi(runtime.ai, runtime.scripted);
+				await prepareAi(runtime.ai, runtime.scripted, (text) => app.note(text));
 				if (generation !== turnGeneration) return;
 				const model = runtime.ai.resolve("worker").model;
 				const guidance = skills.context();
@@ -647,9 +655,10 @@ async function gateMode(cli: Cli, config: BedrockConfig, workspace: string): Pro
 }
 
 async function modelsMode(cli: Cli): Promise<number> {
-	const ai = new Ai({ config: loadConfig(process.cwd()).config, models: providerModels() });
+	const catalog = providerModels();
+	await refreshModelCatalog(catalog, { note: (text) => process.stderr.write(`${text}\n`) });
 	const query = cli.positionals.join(" ").toLowerCase();
-	const models = ai.models
+	const models = catalog
 		.getModels()
 		.filter((model) => query.length === 0 || `${model.provider}/${model.id}`.toLowerCase().includes(query))
 		.sort((a, b) => a.provider.localeCompare(b.provider) || a.id.localeCompare(b.id));
@@ -658,7 +667,7 @@ async function modelsMode(cli: Cli): Promise<number> {
 		return 1;
 	}
 	for (const model of models) {
-		const cost = model.cost ? `$${model.cost.input}/$${model.cost.output} per Mtok` : "";
+		const cost = hasUnknownPricing(model) ? "pricing unknown" : `$${model.cost.input}/$${model.cost.output} per Mtok`;
 		process.stdout.write(
 			`${model.provider}/${model.id}  ${model.contextWindow ? `${Math.round(model.contextWindow / 1000)}k ctx` : ""} ${cost}\n`,
 		);
@@ -735,6 +744,7 @@ async function labMode(cli: Cli, config: BedrockConfig, workspace: string): Prom
 	const models = probe.ai.models;
 	const scripted = probe.scripted;
 	probe.close();
+	if (!scripted) await refreshModelCatalog(models, { note: (text) => process.stderr.write(`${text}\n`) });
 	const available = scripted ? undefined : await configuredProviders(models);
 	if (available?.length === 0) throw new Error('no configured provider; run "bedrock login"');
 	const run = await runSuite({

@@ -66,7 +66,9 @@ export interface ProviderInfo {
 
 /** Lists chat providers with their login methods and current configuration. */
 export async function listProviders(models: Models): Promise<ProviderInfo[]> {
-	const providers = models.getProviders().filter((provider) => models.getModels(provider.id).length > 0);
+	const providers = models
+		.getProviders()
+		.filter((provider) => provider.refreshModels || models.getModels(provider.id).length > 0);
 	const infos = await Promise.all(
 		providers.map(async (provider): Promise<ProviderInfo> => {
 			const auth = provider.auth;

@@ -43,7 +43,7 @@ terminal scrollback when you quit.
 | `/login [provider] [oauth\|api-key]` | open the provider/method pickers or connect directly; secrets are entered without echo |
 | `/logout [provider]` | pick or name a saved credential to remove |
 | `/providers [query]` | find available login methods and see which providers are configured |
-| `/model [provider\|provider/model\|auto]` | pick an available worker model, optionally filter by provider, or clear the saved choice |
+| `/model [provider\|provider/model\|auto]` | refresh and pick an available worker model, optionally filter by provider, or clear the saved choice |
 | `/skills [add <path>]` | list or install local Markdown skills |
 | `/skill [name\|off]` | pick, select or disable a skill for this session |
 | `/status` `/cost` | session information and estimated model spend |

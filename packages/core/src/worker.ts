@@ -17,6 +17,7 @@ import {
 	type FinishReport,
 	type LedgerSink,
 	type ToolContext,
+	type WebToolsOptions,
 } from "@bedrock/tools";
 import type { AgentEvent, AgentMessage, AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import { Agent } from "@earendil-works/pi-agent-core";
@@ -96,6 +97,7 @@ export interface RunWorkerOptions {
 	contextBudgetTokens?: number;
 	/** Edit tools to expose (default hashline). */
 	edits?: EditTool[];
+	web?: WebToolsOptions;
 }
 
 export interface WorkerOutcome {
@@ -230,7 +232,7 @@ export async function runWorker(options: RunWorkerOptions): Promise<WorkerOutcom
 
 	let report: FinishReport | undefined;
 	const tools: AgentTool[] = [
-		...createTools(toolContext, { edits: options.edits }),
+		...createTools(toolContext, { edits: options.edits, web: options.web }),
 		createLedgerTool({
 			missionId: mission.id,
 			workerId: options.workerId,

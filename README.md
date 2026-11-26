@@ -67,6 +67,9 @@ from that repository's root.
 Install a local `SKILL.md` with `npm run bedrock -- skills add ./path/to/skill`. Pick it with
 `/skill` or pass `--skill <name>` to `run` or `quick`. Installing a skill does not activate it.
 
+For public research, use `--web` with `BRAVE_SEARCH_API_KEY` and/or `--web-host <hostname>` to
+read public documentation. See [web research](docs/tools.md#web-research).
+
 What happens on `run`: the repo is scouted, a gate is compiled from its own test/build/lint commands plus
 your `--gate`, one worker attacks it in an isolated git worktree, an independent verifier runs the gate (and
 any holdout), and only a verified result is applied to your checkout. If the first attempt fails, the budget

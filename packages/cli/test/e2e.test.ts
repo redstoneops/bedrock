@@ -38,7 +38,7 @@ function script(home: string, steps: unknown[]): string {
 	return path;
 }
 
-function run(repo: string, home: string, scriptPath: string, args: string[]) {
+function run(repo: string, home: string, scriptPath: string, args: string[], env?: NodeJS.ProcessEnv) {
 	return spawnSync(process.execPath, [bin, ...args], {
 		cwd: repo,
 		encoding: "utf8",
@@ -50,9 +50,46 @@ function run(repo: string, home: string, scriptPath: string, args: string[]) {
 			BEDROCK_SCRIPT: scriptPath,
 			ANTHROPIC_API_KEY: "",
 			OPENAI_API_KEY: "",
+			BRAVE_SEARCH_API_KEY: "",
+			...env,
 		},
 	});
 }
+
+it("passes web options to quick mode without passing the search key to its shell", () => {
+	const { repo, home } = fixture();
+	const steps = [
+		{
+			tools: [
+				{ name: "web_fetch", args: { url: "https://example.net/" } },
+				{ name: "bash", args: { command: `test -z "\${BRAVE_SEARCH_API_KEY+x}"` } },
+			],
+		},
+		{ text: "Finished." },
+	];
+	const result = run(
+		repo,
+		home,
+		script(home, steps),
+		[
+			"quick",
+			"--json",
+			"--permissions",
+			"yolo",
+			"--web",
+			"--web-host",
+			"example.com",
+			"Read the public documentation",
+		],
+		{ BRAVE_SEARCH_API_KEY: "faux-test-key" },
+	);
+	expect(result.stderr).toBe("");
+	expect(result.status).toBe(0);
+	expect(result.stdout).toContain("host not enabled");
+	expect(result.stdout).toContain('"name":"bash"');
+	expect(result.stdout).toContain('"status":"ok"');
+	expect(result.stdout).not.toContain("faux-test-key");
+});
 
 describe("bedrock run end to end (scripted model)", () => {
 	it("fixes a bug in a worktree, verifies it, applies it and writes a proof", () => {

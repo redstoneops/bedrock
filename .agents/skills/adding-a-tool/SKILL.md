@@ -28,3 +28,7 @@ Generic tools live in `packages/tools/src/`; tools that need the gate, ledger or
 8. **Tests** in `packages/tools/test/` with a temp workspace and a `yolo` sandbox (see `patch.test.ts`):
    happy path, refusal outside the workspace, and the main error message.
 9. **Docs:** a row in `docs/tools.md`.
+
+Host-side web tools (`web.ts`, `web-client.ts`) require explicit opt-in and separate permission
+checks. Do not enable shell networking to make them work, forward credentials to fetched URLs,
+or auto-approve a host-side request under strict permissions.

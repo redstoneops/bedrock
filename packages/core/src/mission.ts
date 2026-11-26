@@ -48,7 +48,7 @@ import {
 	type WorkerSpec,
 } from "@bedrock/protocol";
 import { Sandbox } from "@bedrock/sandbox";
-import { describeToolCall, type EditTool, type LedgerSink } from "@bedrock/tools";
+import { describeToolCall, type EditTool, type LedgerSink, type WebToolsOptions } from "@bedrock/tools";
 import {
 	computeFinalState,
 	defaultVerifiers,
@@ -118,6 +118,7 @@ export interface MissionOptions {
 	policy?: BudgetPolicy;
 	/** Edit tools for workers (default hashline). */
 	edits?: EditTool[];
+	web?: WebToolsOptions;
 }
 
 export interface MissionResult {
@@ -422,6 +423,7 @@ export async function runMission(options: MissionOptions): Promise<MissionResult
 					controller,
 					contextBudgetTokens: contextBudget,
 					edits: options.edits,
+					web: options.web,
 					advise: options.advisor
 						? (messages) => advise({ ai, goal: mission.spec.goal, gate, messages })
 						: undefined,

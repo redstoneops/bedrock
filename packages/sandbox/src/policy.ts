@@ -25,10 +25,15 @@ const READ_TOOLS = new Set([
 	"history",
 	"ledger",
 	"web_search",
+	"web_fetch",
 	"fetch",
 	"artifact",
 	"checks",
 ]);
+
+function isWebTool(tool: string): boolean {
+	return tool === "web_search" || tool === "web_fetch";
+}
 
 /** Files never readable or writable by a worker, regardless of preset. */
 export const SECRET_PATTERNS = [
@@ -171,6 +176,12 @@ export function presetRules(preset: PermissionPreset): Rule[] {
 		protectSecrets,
 		protectGate,
 		{
+			id: "standard-web",
+			effect: "allow",
+			reason: "the user explicitly enabled this bounded web tool",
+			test: (request) => isWebTool(request.tool),
+		},
+		{
 			id: "standard-writes-foreign",
 			effect: "deny",
 			reason: "writes outside the workspace are not allowed",
@@ -234,7 +245,7 @@ export class SandboxPolicyEngine implements PermissionPolicy {
 		const decision = evaluatePreset(this.preset, request, this.#config.workspace);
 		// Autonomous runs cannot ask a human. Inside an isolated workspace with an
 		// enforced sandbox, `ask` becomes `allow`; the OS sandbox still bounds damage.
-		if (decision.effect === "ask" && this.#config.autonomous && this.#config.isolated) {
+		if (decision.effect === "ask" && this.#config.autonomous && this.#config.isolated && !isWebTool(request.tool)) {
 			return { effect: "allow", reason: `${decision.reason} (autonomous, isolated)`, ruleId: decision.ruleId };
 		}
 		return decision;

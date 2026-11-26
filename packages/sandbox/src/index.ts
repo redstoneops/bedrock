@@ -7,3 +7,4 @@ export * from "./policy.ts";
 export * from "./redact.ts";
 export * from "./sandbox.ts";
 export * from "./seatbelt.ts";
+export { validateWebHost } from "./web-host.ts";

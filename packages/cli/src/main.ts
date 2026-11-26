@@ -5,7 +5,14 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { Ai, configuredProviders } from "@bedrock/ai";
-import { MissionController, QUICK_SYSTEM_PROMPT, QuickSession, runMission, scout } from "@bedrock/core";
+import {
+	MissionController,
+	type MissionOptions,
+	QUICK_SYSTEM_PROMPT,
+	QuickSession,
+	runMission,
+	scout,
+} from "@bedrock/core";
 import { recoverSessions } from "@bedrock/daemon";
 import { compileGate, describeResult, runGate } from "@bedrock/gate";
 import {
@@ -27,6 +34,7 @@ import type {
 	Role,
 } from "@bedrock/protocol";
 import { shortId } from "@bedrock/protocol";
+import { validateWebHost } from "@bedrock/sandbox";
 import { MissionApp } from "@bedrock/tui";
 import { applyOverrides, loadConfig } from "./config.ts";
 import { showProviders, signIn, signOut, terminalAsker } from "./login.ts";
@@ -45,6 +53,9 @@ import { tuiSkills } from "./tui-skills.ts";
 import { addSkill, listSkills, skillContext } from "./user-skills.ts";
 
 const VERSION = "0.1.0";
+// Keep the search credential out of child shells, gate commands, and worker kernels.
+const BRAVE_KEY = process.env.BRAVE_SEARCH_API_KEY?.trim();
+delete process.env.BRAVE_SEARCH_API_KEY;
 
 const HELP = `bedrock — agents that stand on verified ground
 
@@ -72,6 +83,8 @@ Options:
   --gate <cmd>         a gate command; repeatable, always included, never weakened
   --model <ref>        model for the worker role (provider/model); --role targets another role
   --skill <name>       activate an installed skill (run or quick; repeat up to three)
+  --web                enable Brave web search (requires BRAVE_SEARCH_API_KEY)
+  --web-host <host>    enable public HTTPS reads from this exact hostname; repeatable
   --max-usd <n>        budget in dollars
   --max-attempts <n>   total workers across all rounds (default 3)
   --parallel <n>       maximum parallel workers per round (default from config, 4)
@@ -94,6 +107,7 @@ interface Cli {
 	command: string;
 	positionals: string[];
 	values: Record<string, string | string[] | boolean | undefined>;
+	web?: MissionOptions["web"];
 }
 
 function parseCli(): Cli {
@@ -105,6 +119,8 @@ function parseCli(): Cli {
 			gate: { type: "string", multiple: true },
 			model: { type: "string" },
 			skill: { type: "string", multiple: true },
+			web: { type: "boolean" },
+			"web-host": { type: "string", multiple: true },
 			role: { type: "string" },
 			"max-usd": { type: "string" },
 			"max-attempts": { type: "string" },
@@ -201,6 +217,14 @@ async function main(): Promise<number> {
 	}
 
 	const workspace = process.cwd();
+	const hosts = [...new Set((list(cli.values["web-host"]) ?? []).map(validateWebHost))];
+	if (cli.values.web || hosts.length) {
+		if (!["", "run", "quick"].includes(cli.command))
+			throw new Error("web tools are available only in Mission Control, run, and quick");
+		if (cli.values.web && !BRAVE_KEY) throw new Error("--web requires BRAVE_SEARCH_API_KEY");
+		if (hosts.length > 20) throw new Error("--web-host accepts up to 20 distinct hostnames");
+		cli.web = { braveKey: cli.values.web ? BRAVE_KEY : undefined, hosts };
+	}
 	const loaded = loadConfig(workspace);
 	const config = applyOverrides(loaded.config, {
 		model: str(cli.values.model),
@@ -362,6 +386,7 @@ async function executeMission(cli: Cli, config: BedrockConfig, workspace: string
 			kernel: config.loop.kernel,
 			isolation: config.isolation === "worktree" ? "worktree" : "inplace",
 			edits: [config.edits.default],
+			web: cli.web,
 		});
 	} finally {
 		runtime.close();
@@ -452,10 +477,7 @@ async function missionMode(
 				emit: (event) => app.apply(event),
 				ask: (question, options) => app.ask(question, options),
 				onPermission: async (request, decision) => {
-					const answer = await app.ask(`allow ${request.command ?? request.tool}? (${decision.reason})`, [
-						"y",
-						"n",
-					]);
+					const answer = await app.ask(`allow ${permissionLabel(request)}? (${decision.reason})`, ["y", "n"]);
 					return answer?.toLowerCase().startsWith("y") ?? false;
 				},
 			});
@@ -495,6 +517,7 @@ async function quickMode(cli: Cli, config: BedrockConfig, workspace: string): Pr
 				sandbox: runtime.sandbox,
 				artifacts: runtime.artifacts,
 				edits: [config.edits.default],
+				web: cli.web,
 				onEvent: emit,
 				systemPrompt: quickPrompt(skillContext(list(cli.values.skill) ?? [])),
 			});
@@ -539,6 +562,7 @@ async function quickMode(cli: Cli, config: BedrockConfig, workspace: string): Pr
 				sandbox: runtime.sandbox,
 				artifacts: runtime.artifacts,
 				edits: [config.edits.default],
+				web: cli.web,
 				systemPrompt: quickPrompt(guidance),
 				onEvent: (event) => {
 					app.setCost(runtime.ai.cost.usd);
@@ -546,10 +570,7 @@ async function quickMode(cli: Cli, config: BedrockConfig, workspace: string): Pr
 				},
 				ask: (question, options) => app.ask(question, options),
 				onPermission: async (request, decision) => {
-					const answer = await app.ask(`allow ${request.command ?? request.tool}? (${decision.reason})`, [
-						"y",
-						"n",
-					]);
+					const answer = await app.ask(`allow ${permissionLabel(request)}? (${decision.reason})`, ["y", "n"]);
 					return answer?.toLowerCase().startsWith("y") ?? false;
 				},
 			});
@@ -597,6 +618,13 @@ async function quickMode(cli: Cli, config: BedrockConfig, workspace: string): Pr
 
 function quickPrompt(guidance: string): string {
 	return guidance ? `${QUICK_SYSTEM_PROMPT}\n\n${guidance}` : QUICK_SYSTEM_PROMPT;
+}
+
+function permissionLabel(request: PermissionRequest): string {
+	const target = request.args?.query ?? request.args?.url;
+	if (request.hosts?.length && typeof target === "string")
+		return `${request.tool} to ${request.hosts.join(", ")}: ${target}`;
+	return request.command ?? request.tool;
 }
 
 async function gateMode(cli: Cli, config: BedrockConfig, workspace: string): Promise<number> {

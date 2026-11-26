@@ -74,4 +74,5 @@ session or mission as guidance; it does not change tools, permissions or verific
 | provider keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) | credentials, read by pi-ai |
 | `BEDROCK_HOME` | overrides the directory for user config, authentication, skills and preferences (default `~/.bedrock`) |
 | `BEDROCK_SCRIPT=file.json` | replace every model with a scripted one (demos and tests only) |
+| `BRAVE_SEARCH_API_KEY` | enables the `--web` option; consumed by the host and not passed to child processes |
 | `PYTHON` | interpreter for the kernel (default `python3`) |

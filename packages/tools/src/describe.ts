@@ -49,6 +49,10 @@ export function describeToolCall(name: string, args: unknown): string {
 			);
 		case "bash":
 			return clip(`$ ${str(record.command) ?? "?"}`);
+		case "web_search":
+			return clip(`web search ${str(record.query) ?? "?"}`);
+		case "web_fetch":
+			return clip(`web fetch ${str(record.url) ?? "?"}`);
 		case "grep":
 			return clip(`grep ${str(record.pattern) ?? "?"}${str(record.path) ? ` in ${record.path}` : ""}`);
 		case "find":

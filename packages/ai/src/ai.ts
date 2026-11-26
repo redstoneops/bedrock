@@ -10,6 +10,7 @@ import {
 	type Models,
 	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
+import { FEATURED_PROVIDERS, preferredModel } from "./auth.ts";
 
 export interface ResolvedModel {
 	role: Role;
@@ -81,6 +82,7 @@ export class Ai {
 	readonly cost: CostTracker;
 	#overrides = new Map<Role, ModelRef>();
 	#effortOverrides = new Map<Role, Effort>();
+	#available?: Set<string>;
 
 	constructor(options: AiOptions) {
 		this.config = options.config;
@@ -126,7 +128,21 @@ export class Ai {
 				}
 			}
 		}
+		if (!chosen && this.#available) {
+			// Nothing configured is usable: pick the best model of a provider the user is logged in to.
+			const small = role === "scout" || role === "smol" || role === "commit" || role === "curator";
+			for (const provider of [...this.#available].sort((a, b) => rank(a) - rank(b))) {
+				const model =
+					(small ? preferredModel(this.models, provider, "small") : undefined) ??
+					preferredModel(this.models, provider);
+				if (model) {
+					chosen = `${model.provider}/${model.id}`;
+					break;
+				}
+			}
+		}
 		if (!chosen) {
+			if (this.#available) throw new Error('no configured provider; use /login or run "bedrock login"');
 			const available = this.models.getModels();
 			if (available.length === 0) {
 				throw new Error(
@@ -152,9 +168,18 @@ export class Ai {
 		};
 	}
 
+	/**
+	 * Restricts resolution to providers with credentials. Call after checking
+	 * auth (see `configuredProviders`); before that, every catalog model counts.
+	 */
+	setAvailableProviders(providers: Iterable<string>): void {
+		this.#available = new Set(providers);
+	}
+
 	#lookup(ref: ModelRef): Model<string> | undefined {
 		try {
 			const { provider, id } = parseModelRef(ref);
+			if (this.#available && !this.#available.has(provider)) return undefined;
 			return this.models.getModel(provider, id) as Model<string> | undefined;
 		} catch {
 			return undefined;
@@ -217,6 +242,11 @@ export class Ai {
 	priceOf(model: Model<string>, usage: AssistantMessage["usage"]): number {
 		return calculateCost(model, usage).total;
 	}
+}
+
+function rank(provider: string): number {
+	const index = FEATURED_PROVIDERS.indexOf(provider);
+	return index < 0 ? 999 : index;
 }
 
 /** True when two model refs come from different provider families. */

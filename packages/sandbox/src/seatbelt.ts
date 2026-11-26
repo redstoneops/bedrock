@@ -19,6 +19,8 @@ export interface SandboxPolicy {
 	writableRoots: string[];
 	/** Paths that stay read-only even inside writable roots (e.g. `.git`, gate files). */
 	protectedPaths: string[];
+	/** Host files that sandboxed programs may neither read nor write. */
+	privatePaths?: string[];
 	/** Hosts allowed in `allowlist` network mode. */
 	allowedHosts: string[];
 }
@@ -139,6 +141,10 @@ export function seatbeltProfile(policy: SandboxPolicy): SeatbeltProfile {
 			profile += `(deny file-write-unlink (require-all (subpath (param "PROTECT_${index}")) (vnode-type DIRECTORY)))\n`;
 		});
 	}
+	policy.privatePaths?.forEach((path, index) => {
+		params[`PRIVATE_${index}`] = path;
+		profile += `(deny file-read* file-write* (subpath (param "PRIVATE_${index}")))\n`;
+	});
 
 	if (policy.network === "none") {
 		profile += "(deny network*)\n";

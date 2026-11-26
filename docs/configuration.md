@@ -40,10 +40,23 @@ fallbacks for that role.
 
 `--max-attempts` (default 3) is the total number of workers across all rounds.
 
+## Provider authentication
+
+Use `bedrock providers` to see which providers support interactive OAuth, API keys, or ambient
+credentials. Sign in with `bedrock login openai oauth` (ChatGPT), `bedrock login anthropic oauth`
+(Claude), or `bedrock login deepseek api-key`. OAuth access depends on your account and provider.
+`bedrock logout <provider>` removes the local credential; it does not revoke upstream tokens or
+unset environment variables.
+
+Keys and tokens live in `~/.bedrock/auth.json` (owner-only, not encrypted). Keep `BEDROCK_HOME`
+outside the project. Only run trusted code when shell or verification commands run without OS
+isolation. See [ADR-0009](adr/0009-local-provider-credentials.md).
+
 ## Environment
 
 | Variable | Effect |
 | --- | --- |
 | provider keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) | credentials, read by pi-ai |
+| `BEDROCK_HOME` | overrides the user authentication directory (default `~/.bedrock`) |
 | `BEDROCK_SCRIPT=file.json` | replace every model with a scripted one (demos and tests only) |
 | `PYTHON` | interpreter for the kernel (default `python3`) |

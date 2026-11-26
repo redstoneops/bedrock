@@ -36,6 +36,9 @@ terminal scrollback when you quit.
 | Ctrl+C | interrupt; twice within 1.5s quits |
 | Ctrl+K / Ctrl+L | agent hub / ledger pane |
 | `/help` `/gate` `/agents` `/ledger` `/proof` `/clear` `/quit` | slash commands |
+| `/login [provider] [oauth\|api-key]` | connect a provider without restarting; credentials are entered without echo |
+| `/logout <provider>` | remove a saved credential |
+| `/providers [query]` | find available login methods and see which providers are configured |
 
 Editor history, paste handling and line editing come from pi-tui's `Editor`.
 

@@ -1,6 +1,8 @@
 // @bedrock/sandbox: Obsidian. One object that owns policy, sandboxing and the audit trail.
 
 import { spawn, spawnSync } from "node:child_process";
+import { realpathSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import type { AuditRecord, PermissionDecision, PermissionPreset, PermissionRequest } from "@bedrock/protocol";
 import { type AuditSink, MemoryAuditLog } from "./audit.ts";
 import { type Classification, classifyCommand } from "./classify.ts";
@@ -29,6 +31,7 @@ export interface SandboxConfig {
 	/** Host workspace path, for the container bind mount. */
 	hostWorkspace?: string;
 	network?: NetworkAccess;
+	privatePaths?: string[];
 	audit?: AuditSink;
 }
 
@@ -52,6 +55,15 @@ export interface CommandOutcome {
 	denialSignal?: string;
 }
 
+function canonicalPath(path: string): string {
+	try {
+		return realpathSync(path);
+	} catch {
+		const parent = dirname(path);
+		return path === parent ? path : resolve(canonicalPath(parent), relative(parent, path));
+	}
+}
+
 /**
  * The facade: decides, records, and (when asked) executes. Tools call
  * `check` before acting and `run` for shell commands so that every decision
@@ -66,7 +78,10 @@ export class Sandbox {
 
 	constructor(config: SandboxConfig) {
 		this.config = config;
-		this.policy = workspacePolicy(config.workspace, { network: config.network ?? "none" });
+		this.policy = workspacePolicy(config.workspace, {
+			network: config.network ?? "none",
+			privatePaths: config.privatePaths?.flatMap((path) => [resolve(path), canonicalPath(resolve(path))]),
+		});
 		this.engine = new SandboxPolicyEngine({
 			preset: config.preset,
 			rules: [],
@@ -84,6 +99,26 @@ export class Sandbox {
 	}
 
 	check(request: PermissionRequest): PermissionDecision {
+		const privatePaths = this.policy.privatePaths;
+		if (!privatePaths?.length) return this.engine.check(request);
+		for (const path of request.paths ?? []) {
+			const absolute = resolve(request.cwd ?? this.config.workspace, path);
+			const canonical = canonicalPath(absolute);
+			for (const secret of privatePaths) {
+				const rel = relative(secret, canonical);
+				const ancestor = relative(canonical, secret);
+				if (
+					rel === "" ||
+					(!rel.startsWith("..") && !isAbsolute(rel)) ||
+					(request.tool === "grep" && !ancestor.startsWith("..") && !isAbsolute(ancestor))
+				)
+					return {
+						effect: "deny",
+						reason: "private harness state is not available to workers",
+						ruleId: "private-path",
+					};
+			}
+		}
 		return this.engine.check(request);
 	}
 

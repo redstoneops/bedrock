@@ -103,6 +103,13 @@ export function createGrepTool(ctx: ToolContext): AgentTool<typeof grepParameter
 		): Promise<AgentToolResult<JsonValue | undefined>> => {
 			const root = resolveInside(ctx.workspace, params.path ?? ".");
 			if (!root.ok) return failure(root.error);
+			const permission = ctx.sandbox.check({ tool: "grep", paths: [root.absolute] });
+			if (permission.effect === "deny") return failure(`denied: ${permission.reason}`);
+			if (
+				permission.effect === "ask" &&
+				!(await ctx.onPermission?.({ tool: "grep", paths: [root.absolute] }, permission))
+			)
+				return failure(`not approved: ${permission.reason}`);
 			const maxResults = params.maxResults ?? 200;
 			const rg = spawnSync("rg", ["--version"], { stdio: "ignore" });
 			let output: string;

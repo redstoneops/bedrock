@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -131,6 +131,33 @@ describe("seatbelt profiles", () => {
 
 	it("blocks the network when requested", () => {
 		expect(seatbeltProfile(workspacePolicy(workspace)).profile).toContain("(deny network*)");
+	});
+
+	it("denies private state through tool paths, symlinks and Seatbelt when installed", () => {
+		const root = mkdtempSync(join(tmpdir(), "bedrock-private-path-"));
+		try {
+			const secret = join(root, "auth.json");
+			const alias = join(root, "alias");
+			writeFileSync(secret, "faux-credential");
+			if (process.platform !== "win32") symlinkSync(secret, alias);
+			const sandbox = new Sandbox({
+				workspace: root,
+				preset: "standard",
+				autonomous: false,
+				privatePaths: [secret],
+			});
+			expect(sandbox.check({ tool: "read", paths: [secret] })).toMatchObject({ effect: "deny" });
+			if (process.platform !== "win32")
+				expect(sandbox.check({ tool: "read", paths: [alias] })).toMatchObject({ effect: "deny" });
+			expect(sandbox.check({ tool: "grep", paths: [root] })).toMatchObject({ effect: "deny" });
+			if (sandbox.backend === "seatbelt") {
+				const result = sandbox.run(`cat "${secret}"`);
+				expect(result.exitCode).not.toBe(0);
+				expect(result.stdout).not.toContain("faux-credential");
+			}
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
 	});
 });
 

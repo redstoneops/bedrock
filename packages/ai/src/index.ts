@@ -1,3 +1,5 @@
-// @bedrock/ai: model roles, routing, fallbacks and cost tracking over pi-ai.
+// @bedrock/ai: model roles, routing, fallbacks, cost tracking, logins and credentials over pi-ai.
 
 export * from "./ai.ts";
+export * from "./auth.ts";
+export * from "./credentials.ts";

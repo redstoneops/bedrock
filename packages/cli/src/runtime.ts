@@ -1,9 +1,9 @@
 // @bedrock/cli: shared runtime wiring for every mode.
 
 import { spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { Ai } from "@bedrock/ai";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import { Ai, configuredProviders, defaultAuthPath, FileCredentialStore } from "@bedrock/ai";
 import { ArtifactStore, EventLog } from "@bedrock/context";
 import { Ledger } from "@bedrock/ledger";
 import { type BedrockConfig, createId, type Id } from "@bedrock/protocol";
@@ -34,12 +34,42 @@ export interface RuntimeOptions {
 	models?: ReturnType<typeof builtinModels>;
 }
 
+export function providerModels() {
+	return builtinModels({ credentials: new FileCredentialStore() });
+}
+
+/** Resolve provider availability before the first model request, not when opening the UI. */
+export async function prepareAi(ai: Ai, scripted?: string): Promise<void> {
+	if (!scripted) ai.setAvailableProviders(await configuredProviders(ai.models));
+	ai.resolve("worker");
+}
+
+function assertExternalAuth(workspace: string, authPath: string): void {
+	const canonical = (path: string): string => {
+		if (existsSync(path)) return realpathSync(path);
+		const parent = dirname(path);
+		return parent === path ? path : join(canonical(parent), basename(path));
+	};
+	const authPaths = [authPath, canonical(authPath), canonical(dirname(authPath))];
+	for (const root of [workspace, canonical(workspace)]) {
+		for (const path of authPaths) {
+			const rel = relative(root, path);
+			if (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
+				throw new Error(
+					"Bedrock's auth store must be outside the workspace; set BEDROCK_HOME to a private external directory",
+				);
+		}
+	}
+}
+
 /**
  * Builds the objects a mode needs. State lives under `<workspace>/.bedrock`:
  * the ledger is SQLite, the event log JSONL, artifacts content-addressed, and the
  * audit log append-only.
  */
 export function createRuntime(options: RuntimeOptions): Runtime {
+	const authPath = defaultAuthPath();
+	assertExternalAuth(options.workspace, authPath);
 	const stateDir = options.config.stateDir;
 	mkdirSync(stateDir, { recursive: true });
 	const sessionId = createId("session");
@@ -55,9 +85,10 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 		containerImage: options.config.isolation === "container" ? options.config.containerImage : undefined,
 		hostWorkspace: options.workspace,
 		network: "none",
+		privatePaths: [authPath, `${authPath}.lock`],
 		audit,
 	});
-	const models = options.models ?? builtinModels();
+	const models = options.models ?? providerModels();
 	const scriptPath = process.env.BEDROCK_SCRIPT;
 	if (scriptPath) installScript(models, options.config, loadScript(scriptPath));
 	const ai = new Ai({ config: options.config, models });
@@ -92,33 +123,6 @@ export function excludeStateDir(workspace: string, stateDir: string): void {
 	const existing = existsSync(exclude) ? readFileSync(exclude, "utf8") : "";
 	mkdirSync(join(exclude, ".."), { recursive: true });
 	appendFileSync(exclude, `${existing.endsWith("\n") || existing.length === 0 ? "" : "\n"}/${relative}/\n`);
-}
-
-/** Environment variables that indicate at least one provider is configured. */
-const CREDENTIAL_ENV = [
-	"ANTHROPIC_API_KEY",
-	"ANTHROPIC_AUTH_TOKEN",
-	"OPENAI_API_KEY",
-	"GOOGLE_API_KEY",
-	"GEMINI_API_KEY",
-	"DEEPSEEK_API_KEY",
-	"OPENROUTER_API_KEY",
-	"GROQ_API_KEY",
-	"MISTRAL_API_KEY",
-	"XAI_API_KEY",
-	"MOONSHOT_API_KEY",
-	"ZAI_API_KEY",
-	"AWS_ACCESS_KEY_ID",
-	"AZURE_OPENAI_API_KEY",
-];
-
-/**
- * True when an obvious provider credential is present. A missing credential is a
- * warning, not a hard stop: OAuth logins and cloud profiles are valid too.
- */
-export function hasProviderCredentials(env: NodeJS.ProcessEnv = process.env): boolean {
-	if (env.BEDROCK_SCRIPT) return true;
-	return CREDENTIAL_ENV.some((name) => (env[name] ?? "").trim().length > 0);
 }
 
 /** True when the process can talk to a human (a TTY on stdin). */

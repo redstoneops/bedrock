@@ -189,4 +189,24 @@ describe("MissionApp on a virtual terminal", () => {
 		expect(text).not.toContain("STRATEGY");
 		instance.stop();
 	});
+
+	it("keeps secret prompts out of the screen, history and submitted goals", async () => {
+		const submitted: string[] = [];
+		const { app: instance, terminal } = app({ onSubmit: (text) => submitted.push(text) });
+		const secret = instance.askSecret("DeepSeek API key");
+		terminal.type("\x1b[200~faux-private-key\x1b[201~");
+		flush(instance);
+		expect(terminal.transcript()).not.toContain("faux-private-key");
+		terminal.type("\r");
+		await expect(secret).resolves.toBe("faux-private-key");
+		terminal.type("\x1b[A");
+		expect(instance.editor.getText()).not.toContain("faux-private-key");
+		expect(submitted).toEqual([]);
+		const cancel = new AbortController();
+		const next = instance.askSecret("OAuth callback", cancel.signal);
+		cancel.abort();
+		await expect(next).resolves.toBeUndefined();
+		expect(instance.view.question).toBeUndefined();
+		instance.stop();
+	});
 });

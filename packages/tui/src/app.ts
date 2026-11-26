@@ -8,6 +8,7 @@
 
 import type { BedrockEvent } from "@bedrock/protocol";
 import {
+	decodeKittyPrintable,
 	Editor,
 	type EditorTheme,
 	matchesKey,
@@ -38,6 +39,9 @@ export const SLASH_HELP = [
 	"/ledger          toggle the ledger pane (Ctrl+L)",
 	"/gate            list the gate checks and their status",
 	"/proof           show where the proof of work was written",
+	"/login           sign in with OAuth or an API key",
+	"/logout          remove a provider's saved credential",
+	"/providers       list provider authentication options",
 	"/clear           clear the transcript",
 	"/quit            leave (Ctrl+C twice)",
 	"Esc interrupts the running mission; typing while it runs steers the workers.",
@@ -69,6 +73,7 @@ export class MissionApp {
 	#options: MissionAppOptions;
 	#ticker?: ReturnType<typeof setInterval>;
 	#answer?: (text: string | undefined) => void;
+	#secret?: string;
 	#lastCtrlC = 0;
 	#started = false;
 
@@ -76,7 +81,10 @@ export class MissionApp {
 		this.#options = options;
 		this.view = new MissionView();
 		this.view.layout = options.layout ?? "mission";
-		this.view.status = this.view.layout === "chat" ? "quick mode: ask for a change" : "describe a mission to start";
+		this.view.status =
+			this.view.layout === "chat"
+				? "quick mode: ask for a change · /help"
+				: "describe a mission to start · /login · /help";
 		this.terminal = options.terminal ?? new ProcessTerminal();
 		this.tui = new TuiMainScreen(this.terminal);
 		this.cockpit = new MissionControl(this.view);
@@ -110,6 +118,7 @@ export class MissionApp {
 	stop(): void {
 		if (!this.#started) return;
 		this.#started = false;
+		this.#answer?.(undefined);
 		if (this.#ticker) clearInterval(this.#ticker);
 		this.tui.stop();
 	}
@@ -140,29 +149,50 @@ export class MissionApp {
 	}
 
 	/** Shows a question and resolves with the next submission (Esc resolves undefined). */
-	ask(question: string, options?: string[]): Promise<string | undefined> {
+	ask(question: string, options?: string[], signal?: AbortSignal): Promise<string | undefined> {
+		return this.#ask(question, options, false, signal);
+	}
+
+	/** Keeps sensitive input out of the Editor, its history and the transcript. */
+	askSecret(question: string, signal?: AbortSignal): Promise<string | undefined> {
+		return this.#ask(`${question} (input hidden)`, undefined, true, signal);
+	}
+
+	#ask(
+		question: string,
+		options: string[] | undefined,
+		secret: boolean,
+		signal?: AbortSignal,
+	): Promise<string | undefined> {
+		if (signal?.aborted || this.#answer) return Promise.resolve(undefined);
+		if (secret) this.#secret = "";
 		this.view.question = options?.length ? `${question} [${options.join(" / ")}]` : question;
 		this.view.note(`question: ${this.view.question}`, "advisor");
 		this.tui.requestRender();
 		return new Promise((resolve) => {
+			const cancel = () => this.#answer?.(undefined);
 			this.#answer = (text) => {
+				signal?.removeEventListener("abort", cancel);
 				this.view.question = undefined;
+				this.#secret = undefined;
 				this.#answer = undefined;
+				this.tui.requestRender();
 				resolve(text);
 			};
+			signal?.addEventListener("abort", cancel, { once: true });
 		});
 	}
 
 	#submit(text: string): void {
 		const trimmed = text.trim();
 		this.editor.setText("");
-		if (trimmed.length === 0) return;
-		this.editor.addToHistory(trimmed);
 		if (this.#answer) {
-			this.view.note(`you: ${trimmed}`);
+			if (this.#secret !== undefined) return;
 			this.#answer(trimmed);
 			return;
 		}
+		if (trimmed.length === 0) return;
+		this.editor.addToHistory(trimmed);
 		if (trimmed.startsWith("/")) {
 			const [command, ...rest] = trimmed.slice(1).split(" ");
 			this.#command(command ?? "", rest.join(" "));
@@ -207,6 +237,16 @@ export class MissionApp {
 	}
 
 	#globalKey(data: string): { consume?: boolean } | undefined {
+		if (this.#secret !== undefined) {
+			if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) this.#answer?.(undefined);
+			else if (matchesKey(data, "enter")) this.#answer?.(this.#secret);
+			else if (matchesKey(data, "backspace")) this.#secret = Array.from(this.#secret).slice(0, -1).join("");
+			else {
+				const text = decodeKittyPrintable(data) ?? data.replace(/^\x1b\[200~|\x1b\[201~$/g, "");
+				if (!/[\x00-\x1f\x7f-\x9f]/.test(text)) this.#secret += text;
+			}
+			return { consume: true };
+		}
 		if (matchesKey(data, "escape")) {
 			if (this.#answer) {
 				this.#answer(undefined);
@@ -221,6 +261,10 @@ export class MissionApp {
 			return undefined;
 		}
 		if (matchesKey(data, "ctrl+c")) {
+			if (this.#answer) {
+				this.#answer(undefined);
+				return { consume: true };
+			}
 			const now = Date.now();
 			if (now - this.#lastCtrlC < 1500 || !this.view.busy) {
 				this.#options.onQuit?.();

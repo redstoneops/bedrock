@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { Ai } from "@bedrock/ai";
+import { Ai, configuredProviders } from "@bedrock/ai";
 import { MissionController, QuickSession, runMission, scout } from "@bedrock/core";
 import { recoverSessions } from "@bedrock/daemon";
 import { compileGate, describeResult, runGate } from "@bedrock/gate";
@@ -28,9 +28,10 @@ import type {
 } from "@bedrock/protocol";
 import { shortId } from "@bedrock/protocol";
 import { MissionApp } from "@bedrock/tui";
-import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { applyOverrides, loadConfig } from "./config.ts";
-import { createRuntime, hasProviderCredentials, isInteractive, type Runtime, readLine } from "./runtime.ts";
+import { showProviders, signIn, signOut, terminalAsker } from "./login.ts";
+import { createRuntime, isInteractive, prepareAi, providerModels, type Runtime, readLine } from "./runtime.ts";
+import { tuiAccount } from "./tui-account.ts";
 
 const VERSION = "0.1.0";
 
@@ -43,6 +44,9 @@ Usage:
   bedrock scout                            print the scout report for this repo
   bedrock gate [--gate "cmd"]              compile and run the gate once, no agent
   bedrock models [query]                   list models from the pi catalog
+  bedrock providers [query]                list providers and authentication methods
+  bedrock login [provider] [oauth|api-key]  sign in via OAuth or save an API key
+  bedrock logout <provider>                remove saved credentials
   bedrock sessions                         list recorded sessions and which were interrupted
   bedrock proof [mission-id]               print the latest (or a given) proof of work
   bedrock lab run [suite.json] [--attempts k] [--tags a,b]
@@ -217,6 +221,20 @@ async function main(): Promise<number> {
 			return gateMode(cli, config, workspace);
 		case "models":
 			return modelsMode(cli);
+		case "providers":
+			await showProviders(providerModels(), terminalAsker().say, cli.positionals[0]);
+			return 0;
+		case "login": {
+			if (!isInteractive())
+				throw new Error(
+					"login needs an interactive terminal; for CI, set the provider's API-key environment variable",
+				);
+			const [provider, method] = cli.positionals;
+			return (await signIn(providerModels(), terminalAsker(), provider, method)) ? 0 : 1;
+		}
+		case "logout":
+			await signOut(providerModels(), cli.positionals[0], terminalAsker().say);
+			return 0;
 		case "sessions":
 			return sessionsMode(config);
 		case "proof":
@@ -227,14 +245,6 @@ async function main(): Promise<number> {
 			process.stderr.write(`unknown command "${cli.command}"\n\n${HELP}\n`);
 			return 2;
 	}
-}
-
-function requireCredentials(): boolean {
-	if (hasProviderCredentials()) return true;
-	process.stderr.write(
-		"no provider credentials found. Set an API key (for example ANTHROPIC_API_KEY or OPENAI_API_KEY), then retry.\n",
-	);
-	return false;
 }
 
 function newMission(
@@ -281,6 +291,7 @@ async function executeMission(cli: Cli, config: BedrockConfig, workspace: string
 		});
 	const playbook = config.memory.playbook ? new Playbook({ path: defaultPlaybookPath(config.stateDir) }) : undefined;
 	try {
+		await prepareAi(runtime.ai, runtime.scripted);
 		return await runMission({
 			mission: newMission(runtime, config, workspace, goal, list(cli.values.gate)),
 			ai: runtime.ai,
@@ -320,7 +331,6 @@ async function missionMode(
 	workspace: string,
 	goal: string | undefined,
 ): Promise<number> {
-	if (!requireCredentials()) return 1;
 	if (!wantsTui(cli)) {
 		if (!goal) return 2;
 		const emit = cli.values.json ? jsonEmitter() : proseEmitter();
@@ -359,20 +369,27 @@ async function missionMode(
 		finished = resolve;
 	});
 	let exitCode = 0;
+	const models = providerModels();
 	const app: MissionApp = new MissionApp({
 		onSubmit: (text) => {
+			if (account.pending) return;
 			if (controller && app.view.busy) {
 				controller.steer(text);
 				return;
 			}
 			void start(text);
 		},
-		onInterrupt: () => controller?.cancel(),
+		onInterrupt: () => {
+			account.cancel();
+			controller?.cancel();
+		},
 		onQuit: () => {
+			account.cancel();
 			controller?.cancel();
 			finished(exitCode);
 		},
-		onCommand: (command) => {
+		onCommand: (command, args) => {
+			if (account.command(command, args)) return true;
 			if (command === "proof") {
 				app.note(lastProof ? `proof of work: ${lastProof}` : "no mission has finished yet");
 				return true;
@@ -380,6 +397,7 @@ async function missionMode(
 			return false;
 		},
 	});
+	const account = tuiAccount(app, models);
 	const start = async (missionGoal: string) => {
 		controller = new MissionController();
 		app.setBusy(true, `working on: ${missionGoal}`);
@@ -418,8 +436,8 @@ async function missionMode(
 
 async function quickMode(cli: Cli, config: BedrockConfig, workspace: string): Promise<number> {
 	const prompt = [cli.positionals.join(" "), str(cli.values.goal) ?? ""].join(" ").trim();
-	if (!requireCredentials()) return 1;
-	const runtime = createRuntime({ config, workspace, autonomous: !wantsTui(cli) });
+	const models = providerModels();
+	const runtime = createRuntime({ config, workspace, autonomous: !wantsTui(cli), models });
 	try {
 		if (!wantsTui(cli)) {
 			if (prompt.length === 0) {
@@ -427,6 +445,7 @@ async function quickMode(cli: Cli, config: BedrockConfig, workspace: string): Pr
 				return 2;
 			}
 			const emit = cli.values.json ? jsonEmitter() : proseEmitter();
+			await prepareAi(runtime.ai, runtime.scripted);
 			const session = new QuickSession({
 				ai: runtime.ai,
 				workspace,
@@ -447,32 +466,62 @@ async function quickMode(cli: Cli, config: BedrockConfig, workspace: string): Pr
 		const app: MissionApp = new MissionApp({
 			layout: "chat",
 			onSubmit: (text) => {
-				if (!session) return;
-				const wasBusy = session.busy;
-				if (!wasBusy) app.setBusy(true, "thinking…");
-				void session.send(text).finally(() => {
-					if (!wasBusy) app.setBusy(false, `ready · ${runtime.ai.cost.usd.toFixed(4)} USD so far`);
-				});
+				if (!account.pending) void send(text);
 			},
-			onInterrupt: () => session?.abort(),
-			onQuit: () => finished(),
+			onInterrupt: () => {
+				account.cancel();
+				session?.abort();
+			},
+			onQuit: () => {
+				account.cancel();
+				session?.abort();
+				finished();
+			},
+			onCommand: (command, args) => account.command(command, args),
 		});
-		session = new QuickSession({
-			ai: runtime.ai,
-			workspace,
-			sandbox: runtime.sandbox,
-			artifacts: runtime.artifacts,
-			edits: [config.edits.default],
-			onEvent: (event) => {
-				app.setCost(runtime.ai.cost.usd, config.budget.usd);
-				app.apply(event);
-			},
-			ask: (question, options) => app.ask(question, options),
-			onPermission: async (request, decision) => {
-				const answer = await app.ask(`allow ${request.command ?? request.tool}? (${decision.reason})`, ["y", "n"]);
-				return answer?.toLowerCase().startsWith("y") ?? false;
-			},
-		});
+		const account = tuiAccount(app, providerModels());
+		const newSession = () =>
+			new QuickSession({
+				ai: runtime.ai,
+				workspace,
+				sandbox: runtime.sandbox,
+				artifacts: runtime.artifacts,
+				edits: [config.edits.default],
+				onEvent: (event) => {
+					app.setCost(runtime.ai.cost.usd, config.budget.usd);
+					app.apply(event);
+				},
+				ask: (question, options) => app.ask(question, options),
+				onPermission: async (request, decision) => {
+					const answer = await app.ask(`allow ${request.command ?? request.tool}? (${decision.reason})`, [
+						"y",
+						"n",
+					]);
+					return answer?.toLowerCase().startsWith("y") ?? false;
+				},
+			});
+		const send = async (text: string) => {
+			if (app.view.busy) {
+				if (session?.busy) await session.send(text);
+				return;
+			}
+			app.setBusy(true, "thinking…");
+			try {
+				await prepareAi(runtime.ai, runtime.scripted);
+				const model = runtime.ai.resolve("worker").model;
+				const previous = session?.agent.state.model;
+				if (previous && (previous.provider !== model.provider || previous.id !== model.id)) {
+					app.note(`Starting a fresh chat for ${model.provider}/${model.id}; previous messages won't be sent.`);
+					session = undefined;
+				}
+				session ??= newSession();
+				await session.send(text);
+			} catch (error) {
+				app.note((error as Error).message);
+			} finally {
+				app.setBusy(false, "ready · /help");
+			}
+		};
 		app.view.goal = "quick";
 		app.start();
 		if (runtime.scripted) app.note(`scripted model from ${runtime.scripted} (no real provider)`);
@@ -505,7 +554,7 @@ async function gateMode(cli: Cli, config: BedrockConfig, workspace: string): Pro
 }
 
 async function modelsMode(cli: Cli): Promise<number> {
-	const ai = new Ai({ config: loadConfig(process.cwd()).config, models: builtinModels() });
+	const ai = new Ai({ config: loadConfig(process.cwd()).config, models: providerModels() });
 	const query = cli.positionals.join(" ").toLowerCase();
 	const models = ai.models
 		.getModels()
@@ -583,7 +632,6 @@ async function labMode(cli: Cli, config: BedrockConfig, workspace: string): Prom
 		process.stderr.write("usage: bedrock lab run [suite.json] | bedrock lab runs | bedrock lab tb <dir>\n");
 		return 2;
 	}
-	if (!requireCredentials()) return 1;
 	const suitePath = target ?? join(workspace, "evals", "bedrock-hard", "suite.json");
 	if (!existsSync(suitePath)) {
 		process.stderr.write(`no suite at ${suitePath}\n`);
@@ -592,14 +640,21 @@ async function labMode(cli: Cli, config: BedrockConfig, workspace: string): Prom
 	const suite = loadSuite(suitePath);
 	const probe = createRuntime({ config, workspace, autonomous: true });
 	const models = probe.ai.models;
+	const scripted = probe.scripted;
 	probe.close();
+	const available = scripted ? undefined : await configuredProviders(models);
+	if (available?.length === 0) throw new Error('no configured provider; run "bedrock login"');
 	const run = await runSuite({
 		suite,
 		config,
 		attempts: number(cli.values.attempts) ?? 1,
 		tags: str(cli.values.tags)?.split(","),
 		runner: createMissionRunner({
-			makeAi: (taskConfig) => new Ai({ config: taskConfig, models }),
+			makeAi: (taskConfig) => {
+				const ai = new Ai({ config: taskConfig, models });
+				if (available) ai.setAvailableProviders(available);
+				return ai;
+			},
 			maxAttempts: number(cli.values["max-attempts"]) ?? 3,
 		}),
 		onAttempt: (attempt) =>
